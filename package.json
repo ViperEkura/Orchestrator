@@ -1,0 +1,44 @@
+{
+  "name": "orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A local-first multi-agent runtime with durable tasks and a terminal client",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./client": {
+      "types": "./dist/src/client.d.ts",
+      "import": "./dist/src/client.js"
+    }
+  },
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "server": "tsx src/main.ts server",
+    "tui": "tsx src/main.ts tui",
+    "demo": "tsx src/main.ts demo",
+    "start": "node dist/src/main.js"
+  },
+  "dependencies": {
+    "chalk": "5.6.2",
+    "ink": "^6.0.0",
+    "marked": "18.2.1",
+    "react": "^19.0.0",
+    "string-width": "8.3.0",
+    "wrap-ansi": "9.0.2",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3"
+  }
+}
