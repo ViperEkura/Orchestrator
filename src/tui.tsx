@@ -3,13 +3,14 @@ import { Box, Text, render, useApp, useInput, useStdout } from 'ink';
 import { approvalModes, type ApprovalMode, type Snapshot, type Task } from './domain.js';
 import { OrchestratorClient } from './client.js';
 import { completeInput } from './completions.js';
-import { anchorAt, historyTop, clean, conversations, short, statusColor, transcript, views, wrap, type HistoryAnchor, type Line, type View } from './tui-view.js';
+import { approvalPreview, anchorAt, historyTop, clean, conversations, short, statusColor, transcript, views, wrap, type HistoryAnchor, type Line, type View } from './tui-view.js';
 
 export function App({ client }: { client: OrchestratorClient }) {
   const { exit } = useApp(); const { stdout } = useStdout();
   const [size, setSize] = useState({ columns: stdout.columns || 100, rows: stdout.rows || 30 });
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [info, setInfo] = useState<Awaited<ReturnType<OrchestratorClient['info']>>>();
+  const [expandedApproval, setExpandedApproval] = useState<string>();
   const [thinking, setThinking] = useState<Record<string, boolean>>({});
   const [view, setView] = useState<View>('Chat'); const [index, setIndex] = useState(0);
   const [historyAnchor, setHistoryAnchor] = useState<HistoryAnchor>();
@@ -80,6 +81,7 @@ export function App({ client }: { client: OrchestratorClient }) {
   const list = view === 'History' ? turns : view === 'Sessions' ? sessions : view === 'Agents' ? tasks : approvals;
   const row = Math.min(index, Math.max(0, list.length - 1));
   const approval = approvals[row];
+  useEffect(() => { setOffset(0); setExpandedApproval(undefined); }, [approval?.id, view]);
   const switchView = (next: View) => { setView(next); setIndex(0); setOffset(0); setFilter(''); setDismissed(true); };
   const openTask = (task: Task) => { setHistoryAnchor(undefined); setSelected(task.id); setSessionId(task.sessionId); switchView('Chat'); };
   const newChat = () => { setHistoryAnchor(undefined); setSelected(undefined); setSessionId(undefined); setInput(''); switchView('Chat'); setNotice('New conversation'); };
@@ -135,9 +137,12 @@ export function App({ client }: { client: OrchestratorClient }) {
   const completion = completions[activeIndex];
   const menuCount = Math.min(4, completions.length);
   const menuHeight = menuCount ? menuCount + 1 : 0;
-  const panelHeight = Math.max(7, Math.min(size.rows - 9, view === 'Approvals' ? approvals.length ? 18 : 7 : 13));
-  const bodyHeight = Math.max(2, size.rows - 6 - (view === 'Chat' ? 3 + menuHeight : panelHeight));
   const contentWidth = Math.max(10, size.columns - 4);
+  const details = !!approval && expandedApproval === approval.id;
+  const approvalCard = approvalPreview(approval, state, contentWidth, details);
+  const detailHeight = Math.min(approvalCard.lines.length, details ? 12 : 6, Math.max(1, size.rows - 13));
+  const panelHeight = view === 'Approvals' ? detailHeight + 4 : Math.max(7, Math.min(size.rows - 9, 13));
+  const bodyHeight = Math.max(2, size.rows - 6 - (view === 'Chat' ? 3 + menuHeight : panelHeight));
   const transcriptHeight = Math.max(1, bodyHeight - 1);
   const contentHeight = view === 'Chat' ? transcriptHeight : panelHeight - 4 - (['Sessions', 'History'].includes(view) ? 1 : 0);
   const chat = transcript(state, sessionId, streaming, contentWidth);
@@ -155,15 +160,7 @@ export function App({ client }: { client: OrchestratorClient }) {
     const target = direction < 0 ? starts.findLast(i => i < top) ?? starts[0] : starts.find(i => i > top);
     if (target !== undefined) setHistoryAnchor(anchorAt(chat, target));
   };
-  const approvalLines: Line[] = approval ? [
-    { text: `${approval.toolName} · task ${short(approval.taskId)}`, color: 'yellow', bold: true },
-    ...wrap(`Workspace: ${state?.sessions[state.tasks[approval.taskId]!.sessionId]?.cwd ?? ''}`, contentWidth).map(text => ({ text, color: 'gray' })),
-    ...wrap(approval.reason ?? 'Manual approval required', contentWidth).map(text => ({ text, color: 'gray' })),
-    ...wrap(JSON.stringify(approval.arguments, null, 2), contentWidth).map(text => ({ text })),
-    { text: 'Y approve this call · N deny', color: 'yellow' }
-  ] : [];
-  const detailHeight = Math.max(1, contentHeight - Math.min(3, approvals.length) - 1);
-  const maxOffset = view === 'Approvals' ? Math.max(0, approvalLines.length - detailHeight) : Math.max(0, chat.length - contentHeight);
+  const maxOffset = view === 'Approvals' ? Math.max(0, approvalCard.lines.length - detailHeight) : Math.max(0, chat.length - contentHeight);
   const scroll = Math.min(offset, maxOffset);
   const editInput = (value: string) => { setInput(value); setCompletionIndex(0); setDismissed(false); };
   useInput((text, key) => {
@@ -185,6 +182,9 @@ export function App({ client }: { client: OrchestratorClient }) {
       const shortcuts: Record<string, View> = { g: 'Chat', r: 'History', p: 'Sessions', t: 'Agents', o: 'Approvals' };
       if (shortcuts[text]) switchView(shortcuts[text]!);
       return;
+    }
+    if (view === 'Approvals' && approval && text.toLowerCase() === 'd' && !key.meta) {
+      setExpandedApproval(details ? undefined : approval.id); setOffset(0); return;
     }
     if (key.tab) {
       if (completion && !key.shift) editInput(completion.value);
@@ -257,10 +257,7 @@ export function App({ client }: { client: OrchestratorClient }) {
   })).slice(Math.max(0, row - contentHeight + 1), Math.max(contentHeight, row + 1)) : [{ text: allTurns.length ? 'No matching user inputs.' : 'No turns in this conversation yet.', color: 'gray' }];
   else if (view === 'Sessions') lines = sessions.length ? taskLines(sessions, row).slice(Math.max(0, row - contentHeight + 1), Math.max(contentHeight, row + 1)) : [{ text: 'No conversations yet. Ctrl+N starts one.', color: 'gray' }];
   else if (view === 'Agents') lines = tasks.length ? taskLines(tasks, row, true).slice(Math.max(0, row - contentHeight + 1), Math.max(contentHeight, row + 1)) : [{ text: 'Open a conversation to inspect its agents.', color: 'gray' }];
-  else lines = approvals.length ? [
-    ...approvals.slice(Math.max(0, row - 2), Math.max(0, row - 2) + 3).map(a => ({ text: `${short(a.id)}  ${a.toolName}  · task ${short(a.taskId)}`, color: 'yellow', selected: a.id === approval?.id })),
-    { text: '─'.repeat(contentWidth), color: 'gray' }, ...approvalLines.slice(scroll, scroll + detailHeight)
-  ] : [{ text: 'No pending approvals.', color: 'green' }, { text: 'Press Enter or Esc to return to chat.', color: 'gray' }];
+  else lines = [];
   const renderLines = (items: Line[], limit: number) => items.slice(0, limit).map((line, i) => <Text key={i} color={line.color} bold={line.bold} inverse={line.selected} wrap="truncate-end">{line.text || ' '}</Text>);
   if (size.rows < 18 || size.columns < 50) return <Text>Resize terminal to at least 50 × 18. Ctrl+C exits.</Text>;
   const preview = view === 'Chat' ? lines : chat.slice(top, top + transcriptHeight);
@@ -277,21 +274,25 @@ export function App({ client }: { client: OrchestratorClient }) {
       <Text dimColor wrap="truncate-end">{focus ? `CHAT · ${short(focus.sessionId)} · ${focus.agentId}` : 'NEW CONVERSATION'}{allTurns.length ? ` · Turn ${currentTurn}/${allTurns.length}` : ''}{view === 'Chat' && historyAnchor ? ` · ${aboveLatest} lines above latest · End to follow` : ''}</Text>
       {renderLines(preview, transcriptHeight)}
     </Box>
-    <Text color={approvals.length ? 'yellow' : 'gray'} wrap="truncate-end"> {approvals.length ? `${approvals.length} approval(s) waiting · Ctrl+O to review` : isThinking ? 'Thinking…' : running ? `${running} agent(s) working · Ctrl+T to inspect` : busy ? 'Working…' : clean(notice)}</Text>
+    <Text color={approvals.length ? 'yellow' : 'gray'} wrap="truncate-end"> {view === 'Approvals' ? ' ' : approvals.length ? `${approvals.length} approval(s) waiting · Ctrl+O to review` : isThinking ? 'Thinking…' : running ? `${running} agent(s) working · Ctrl+T to inspect` : busy ? 'Working…' : clean(notice)}</Text>
     {view === 'Chat' ? <Box height={3 + menuHeight} flexDirection="column" backgroundColor="#181818" paddingX={2} paddingY={1}>
       <Text color="#dedede" wrap="truncate-end"><Text color="cyan">› </Text>{wrap(input, Math.max(1, size.columns - 7)).at(-1)}{!busy ? <Text color="cyan">▌</Text> : null}{!input && !busy ? <Text color="#808080">  Type a task, or / for commands</Text> : null}</Text>
       {menuCount ? <>
         {completions.slice(Math.max(0, activeIndex - menuCount + 1), Math.max(menuCount, activeIndex + 1)).map(item => <Text key={item.value} color={item === completion ? 'cyan' : 'gray'} bold={item === completion} wrap="truncate-end">{item.label.padEnd(24)} {clean(item.description)}</Text>)}
         <Text dimColor wrap="truncate-end">↑↓ select · Tab complete · Enter select/run · Esc close</Text>
       </> : null}
-    </Box> : <Box height={panelHeight} flexDirection="column" borderStyle="round" borderColor={view === 'Approvals' ? 'yellow' : 'cyan'} paddingX={1}>
-      <Text bold color={view === 'Approvals' ? 'yellow' : 'cyan'}>{view.toUpperCase()} · {list.length}</Text>
+    </Box> : view === 'Approvals' ? <Box height={panelHeight} flexDirection="column" backgroundColor="#181818" paddingX={2} paddingY={1}>
+      <Text wrap="truncate-end"><Text color="yellow" bold>{approvalCard.title}</Text>{approval ? <Text dimColor> · {clean(state?.tasks[approval.taskId]?.agentId ?? 'agent')}{approvals.length > 1 ? ` · ${row + 1}/${approvals.length}` : ''}</Text> : null}</Text>
+      {renderLines(approvalCard.lines.slice(scroll, scroll + detailHeight), detailHeight)}
+      <Text wrap="truncate-end">{approval ? <><Text color="cyan">Y allow</Text><Text dimColor> · N deny · D {details ? 'less' : 'details'} · Esc later</Text></> : <Text dimColor>Enter or Esc returns to chat</Text>}</Text>
+    </Box> : <Box height={panelHeight} flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+      <Text bold color="cyan">{view.toUpperCase()} · {list.length}</Text>
       {view === 'Sessions' || view === 'History' ? <Text dimColor wrap="truncate-end">Filter: {filter || (view === 'History' ? 'search user inputs' : 'type to search conversations')}▌</Text> : null}
       {renderLines(lines, contentHeight)}
       <Box flexGrow={1} />
-      <Text dimColor wrap="truncate-end">{view === 'Approvals' ? !approvals.length ? 'Enter returns to chat' : `↑↓ select · Y approve · N deny · PgUp/PgDn details ${scroll + 1}/${Math.max(1, approvalLines.length)}` : '↑↓ select · Enter open'} · Esc back</Text>
+      <Text dimColor wrap="truncate-end">↑↓ select · Enter open · Esc back</Text>
     </Box>}
-    <Text dimColor wrap="truncate-end"> ↑↓/wheel scroll · Ctrl+R turns · Alt+↑↓ jump · Home/End · / commands</Text>
+    <Text dimColor wrap="truncate-end">{view === 'Approvals' ? [approvals.length > 1 ? ' ↑↓ requests' : '', maxOffset ? ` PgUp/PgDn · lines ${scroll + 1}–${Math.min(scroll + detailHeight, approvalCard.lines.length)}/${approvalCard.lines.length}` : ''].filter(Boolean).join(' ·') || ' ' : ' ↑↓/wheel scroll · Ctrl+R turns · Alt+↑↓ jump · Home/End · / commands'}</Text>
   </Box>;
 }
 

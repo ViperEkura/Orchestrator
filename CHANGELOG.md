@@ -35,3 +35,9 @@
 - Add manual, agent-reviewed and allow-all approval modes with config, API and TUI switching.
 - Open pending approvals automatically and preserve drafts when returning to chat.
 - Record automatic decisions and fall back to manual when model review is unavailable.
+
+### Compact approval cards
+
+- Replace the oversized approval list with a borderless operation card.
+- Show commands and file contents directly; expand metadata with D.
+- Remove duplicate status/help text and preserve paging and queue navigation.

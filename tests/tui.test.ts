@@ -66,7 +66,7 @@ test('TUI navigates sessions, history, agents and approvals; new chat clears the
   const app = render(React.createElement(App, { client }), { stdout: output as unknown as NodeJS.WriteStream, stdin: input as unknown as NodeJS.ReadStream, debug: true, patchConsole: false, exitOnCtrlC: false });
   const press = async (key: string) => { input.write(key); await pause(); };
   try {
-    await pause(160); assert.match(frame, /APPROVALS · 1/); await press('\x1b'); assert.match(frame, /NEW CONVERSATION/); assert.match(frame, /Welcome to Orchestrator/); assert.doesNotMatch(frame, /History line 34|COORDINATOR/);
+    await pause(160); assert.match(frame, /Write file\?/); await press('\x1b'); assert.match(frame, /NEW CONVERSATION/); assert.match(frame, /Welcome to Orchestrator/); assert.doesNotMatch(frame, /History line 34|COORDINATOR/);
     await press('\x10'); await press('\r'); assert.match(frame, /CHAT · two/); assert.doesNotMatch(frame, /CONVERSATIONS · Ctrl/);
     assert.match(frame, /History line 34/);
     await press('\x1b[5~'); assert.match(frame, /above latest/); assert.doesNotMatch(frame, /History line 34/);
@@ -75,11 +75,11 @@ test('TUI navigates sessions, history, agents and approvals; new chat clears the
     await press('\r'); assert.match(frame, /CHAT · one/);
     await press('draft to keep'); await press('\x10'); await press('\x1b'); assert.match(frame, /draft to keep/);
     await press('\x14'); assert.match(frame, /AGENTS · 1/);
-    await press('\x0f'); assert.doesNotMatch(frame, /draft to keep/); assert.match(frame, /APPROVALS · 1/); assert.match(frame, /report.txt/);
-    await press('y'); assert.deepEqual(client.decisions, ['approval:approved']); assert.doesNotMatch(frame, /APPROVALS ·/); assert.match(frame, /draft to keep/);
+    await press('\x0f'); assert.doesNotMatch(frame, /draft to keep/); assert.match(frame, /Write file\?/); assert.match(frame, /report.txt/);
+    await press('y'); assert.deepEqual(client.decisions, ['approval:approved']); assert.doesNotMatch(frame, /Write file\?/); assert.match(frame, /draft to keep/);
     await press('\x0f'); assert.match(frame, /No pending approvals/);
-    await press('\r'); assert.doesNotMatch(frame, /APPROVALS ·/);
-    await press('\x0f'); await press('!'); assert.match(frame, /draft to keep!/); assert.doesNotMatch(frame, /APPROVALS ·/);
+    await press('\r'); assert.doesNotMatch(frame, /Write file\?/);
+    await press('\x0f'); await press('!'); assert.match(frame, /draft to keep!/); assert.doesNotMatch(frame, /Write file\?/);
     await press('\x0e'); assert.match(frame, /NEW CONVERSATION/);
     await press('fresh task'); await press('\r'); assert.equal(client.inputs[0]?.sessionId, undefined);
     await press('\x0e'); await press('/delegate reviewer review this'); await press('\r');
@@ -161,23 +161,50 @@ test('approval queue stays open for remaining requests and returns to the draft 
   try {
     await pause(160); await press('\x10'); await press('\r');
     assert.match(frame, /Formatted answer/); assert.doesNotMatch(frame, /\*\*Formatted answer\*\*/); assert.match(frame, /┌/);
-    await press('\x1b[H'); await press('unsent draft'); await press('\x0f'); assert.match(frame, /APPROVALS · 2/);
-    await press('y'); assert.match(frame, /APPROVALS · 1/);
+    await press('\x1b[H'); await press('unsent draft'); await press('\x0f'); assert.match(frame, /Write file\?.*1\/2/);
+    await press('y'); assert.match(frame, /Write file\?/);
     client.data.state.approvals.second!.status = 'denied';
     client.emit({ seq: 2, type: 'approval.resolved', at: '', data: {} });
-    await pause(180); assert.doesNotMatch(frame, /APPROVALS ·/); assert.match(frame, /unsent draft/);
+    await pause(180); assert.doesNotMatch(frame, /Write file\?/); assert.match(frame, /unsent draft/);
     client.data.state.approvals.third = { ...client.data.state.approvals.second!, id: 'third', status: 'pending' };
     client.emit({ seq: 3, type: 'approval.requested', at: '', data: {} });
-    await pause(180); assert.match(frame, /APPROVALS · 1/);
+    await pause(180); assert.match(frame, /Write file\?/);
     await press('\x1b'); assert.match(frame, /unsent draft/);
     client.emit({ seq: 4, type: 'run.step', at: '', data: {} });
-    await pause(180); assert.doesNotMatch(frame, /APPROVALS ·/);
+    await pause(180); assert.doesNotMatch(frame, /Write file\?/);
     // Replace a request while the queue count stays the same: ID, not count, triggers the popup.
     client.data.state.approvals.third!.status = 'cancelled';
     client.data.state.approvals.fourth = { ...client.data.state.approvals.third!, id: 'fourth', status: 'pending' };
     client.emit({ seq: 5, type: 'approval.requested', at: '', data: {} });
-    await pause(180); assert.match(frame, /APPROVALS · 1/); await press('n');
+    await pause(180); assert.match(frame, /Write file\?/); await press('n');
     assert.deepEqual(client.decisions, ['approval:approved', 'fourth:denied']);
-    assert.doesNotMatch(frame, /APPROVALS ·/); assert.match(frame, /unsent draft/);
+    assert.doesNotMatch(frame, /Write file\?/); assert.match(frame, /unsent draft/);
+  } finally { app.unmount(); app.cleanup(); input.destroy(); output.destroy(); }
+});
+
+test('compact approvals show commands directly and page complete details on narrow terminals', async () => {
+  const client = new FakeClient();
+  client.data.state.approvals.approval!.toolName = 'run_command';
+  client.data.state.approvals.approval!.arguments = { command: Array.from({ length: 12 }, (_, i) => 'echo line-' + i).join('\n'), timeoutMs: 60000 };
+  let frame = '';
+  const output = Object.assign(new Writable({ write(chunk, _encoding, done) { const text = chunk.toString(); if (text.includes('ORCHESTRATOR')) frame = text; done(); } }), { columns: 50, rows: 18, isTTY: true });
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {}, ref() {}, unref() {} });
+  const app = render(React.createElement(App, { client }), { stdout: output as unknown as NodeJS.WriteStream, stdin: input as unknown as NodeJS.ReadStream, debug: true, patchConsole: false, exitOnCtrlC: false });
+  const press = async (key: string) => { input.write(key); await pause(); };
+  try {
+    await pause(160);
+    assert.match(frame, /Run command\?/); assert.match(frame, /echo line-0/);
+    assert.match(frame, /Y allow/); assert.match(frame, /Esc later/);
+    assert.doesNotMatch(frame, /APPROVALS|Ctrl\+O to review|timeoutMs|Manual approval required|╭|╰/);
+    for (let i = 0; i < 8; i++) await press('\x1b[6~');
+    assert.match(frame, /echo line-11/);
+    await press('d'); assert.match(frame, /Task: two/); assert.match(frame, /D less/);
+    for (let i = 0; i < 12; i++) await press('\x1b[6~');
+    assert.match(frame, /timeoutMs/);
+    const plain = frame.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').trimEnd();
+    assert.ok(plain.split('\n').length <= 17);
+    assert.equal(client.decisions.length, 0);
+    await press('d'); assert.match(frame, /echo line-0/);
+    await press('n'); assert.deepEqual(client.decisions, ['approval:denied']);
   } finally { app.unmount(); app.cleanup(); input.destroy(); output.destroy(); }
 });

@@ -1,6 +1,6 @@
 import wrapAnsi from 'wrap-ansi';
 import { renderMarkdown } from './markdown.js';
-import type { State, Task } from './domain.js';
+import type { Approval, State, Task } from './domain.js';
 
 export type View = 'Chat' | 'History' | 'Sessions' | 'Agents' | 'Approvals';
 export const views: View[] = ['Chat', 'History', 'Sessions', 'Agents', 'Approvals'];
@@ -50,4 +50,26 @@ export function historyTop(lines: Line[], height: number, anchor?: HistoryAnchor
 export function anchorAt(lines: Line[], top: number): HistoryAnchor | undefined {
   const line = lines[top];
   return line?.turnId ? { turnId: line.turnId, line: line.turnLine ?? 0 } : undefined;
+}
+
+/** Show the operation first; keep identifiers and raw parameters in details. */
+export function approvalPreview(approval: Approval | undefined, state: State | undefined, width: number, details: boolean): { title: string; lines: Line[] } {
+  if (!approval) return { title: 'No pending approvals', lines: [] };
+  const task = state?.tasks[approval.taskId];
+  const cwd = task ? state?.sessions[task.sessionId]?.cwd : undefined;
+  const args = approval.arguments && typeof approval.arguments === 'object' ? approval.arguments as Record<string, unknown> : {};
+  const command = approval.toolName === 'run_command' && typeof args.command === 'string';
+  const write = approval.toolName === 'write_file' && typeof args.path === 'string' && typeof args.content === 'string';
+  const title = command ? 'Run command?' : write ? 'Write file?' : 'Allow ' + clean(approval.toolName) + '?';
+  const lines: Line[] = [];
+  const add = (text: string, color?: string) => lines.push(...wrap(text, width).map(text => ({ text, color })));
+  if (cwd) add(cwd, 'gray');
+  if (details) {
+    add('Task: ' + approval.taskId, 'gray');
+    if (approval.reason) add(approval.reason, 'gray');
+    add(JSON.stringify(approval.arguments, null, 2));
+  } else if (command) add(args.command as string);
+  else if (write) { add(args.path as string, 'cyan'); add(args.content as string); }
+  else add(JSON.stringify(approval.arguments, null, 2));
+  return { title, lines };
 }

@@ -33,3 +33,5 @@ Normal startup does not import SQLite. Legacy migration tests may emit Node's ex
 Additional checks cover Markdown emphasis, Unicode table alignment/wrapping, escaped pipes, literal code, partial streams, terminal-control removal, live/persisted layout equivalence, startup help, and automatic return from approval queues resolved locally or by another client.
 
 Approval-mode checks cover manual/agent/all execution, agent denial, uncertain/invalid/failed review fallback, cancellation during review, shared review budgets, capability enforcement, API/config validation, and in-place mode completion. TUI regression checks cover automatic arrival, dismiss/reopen behavior, unchanged queue counts with new IDs, multiple pending requests, external decisions, and draft/reading-anchor preservation. Agent decisions use a mocked provider in these checks; no new live-model approval quality evaluation was performed.
+
+Compact approval follow-up: production build and all six TUI tests passed, including raw command display, detail expansion, long-content paging, and a 50-column terminal. The runtime was unchanged.
