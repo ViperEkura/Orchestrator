@@ -43,7 +43,7 @@ Typical client flow: fetch snapshot, subscribe after `lastSeq`, display transien
 
 Errors use `{ "error": "..." }`: schema validation 400, authentication 401, host/origin denial 403, missing route 404, unsupported content type 415, and other request failures 409. POST bodies are capped at 64 KiB.
 
-`delegations` accepts `{ agentId, objective, workspace?, after? }` entries. See [structured collaboration](COLLABORATION.md). `message.thinking` is a transient activity event without reasoning text; reasoning metadata remains in persisted messages for provider continuity.
+`delegations` accepts `{ agentId, objective, workspace?, after? }` entries. See [structured collaboration](COLLABORATION.md). `message.thinking` is a transient event with `{ text }` reasoning deltas supplied by the provider. Completed assistant messages persist `reasoningContent` for history and provider continuity. Older activity-only events remain readable by the TUI.
 
 ### Approval mode
 

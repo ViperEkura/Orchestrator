@@ -244,7 +244,7 @@ export class OrchestratorService {
             if (chunk.type === 'reasoning') {
               reasoningContent += chunk.text;
               if (reasoningContent.length > 128000) throw new Error('Reasoning size limit exceeded');
-              this.store.emit('message.thinking', {}, { taskId, runId });
+              this.store.emit('message.thinking', { text: chunk.text }, { taskId, runId });
             } else if (chunk.type === 'text') {
               text += chunk.text;
               if (text.length > 128000) throw new Error('Model output size limit exceeded');

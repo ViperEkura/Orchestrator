@@ -41,3 +41,9 @@
 - Replace the oversized approval list with a borderless operation card.
 - Show commands and file contents directly; expand metadata with D.
 - Remove duplicate status/help text and preserve paging and queue navigation.
+
+### Collapsible conversation details
+
+- Show model-provided thinking and tool calls inline, collapsed by default.
+- Add mouse and Ctrl+E expansion for arguments, results and reasoning.
+- Stream thinking into the same record used by completed history.

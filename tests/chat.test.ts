@@ -17,7 +17,8 @@ test('default agent streams a direct two-turn conversation and retains reasoning
     yield { type: 'text', text: 'Hello ' }; yield { type: 'text', text: 'there' };
   } };
   const runtime = new OrchestratorService(store, provider, { workspaceDir: dir });
-  const events: string[] = []; store.subscribe(event => events.push(event.type));
+  const events: string[] = []; const liveReasoning: unknown[] = [];
+  store.subscribe(event => { events.push(event.type); if (event.type === 'message.thinking') liveReasoning.push(event.data); });
   try {
     const first = runtime.submit({ objective: 'Hello' }); await runtime.waitUntilDone(first.id);
     assert.equal(first.agentId, 'assistant');
@@ -27,10 +28,10 @@ test('default agent streams a direct two-turn conversation and retains reasoning
     assert.equal(requests[1]!.filter(message => message.content === 'Hello').length, 1);
     assert.ok(requests[1]!.some(message => message.reasoningContent === 'Provider reasoning metadata'));
     assert.ok(events.indexOf('message.delta') < events.indexOf('message.completed'));
-    assert.ok(events.includes('message.thinking'));
+    assert.deepEqual(liveReasoning, [{ text: 'Provider reasoning metadata' }, { text: 'Provider reasoning metadata' }]);
     const restored = store.snapshot(); await runtime.close(); store.close();
     const reopened = new StateStore(join(dir, 'data'));
-    try { assert.equal(Object.keys(reopened.snapshot().state.tasks).length, Object.keys(restored.state.tasks).length); }
+    try { assert.deepEqual(reopened.snapshot(), restored); }
     finally { reopened.close(); }
   } finally { await runtime.close(); store.close(); await rm(dir, { recursive: true, force: true }); }
 });

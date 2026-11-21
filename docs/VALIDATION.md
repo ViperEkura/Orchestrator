@@ -4,7 +4,7 @@ Validated on Windows with Node.js 24.14 and npm 11.12.
 
 ## Automated checks
 
-Type check and production build passed. All 51 tests passed, covering:
+Type check and production build passed. All 54 tests passed, covering:
 
 - Direct two-turn streaming, persisted messages, and retained provider reasoning metadata.
 - Structured sub-agent/team plans, API/SDK transport, sibling dependencies, concurrency permits, and shared budgets.
@@ -35,3 +35,5 @@ Additional checks cover Markdown emphasis, Unicode table alignment/wrapping, esc
 Approval-mode checks cover manual/agent/all execution, agent denial, uncertain/invalid/failed review fallback, cancellation during review, shared review budgets, capability enforcement, API/config validation, and in-place mode completion. TUI regression checks cover automatic arrival, dismiss/reopen behavior, unchanged queue counts with new IDs, multiple pending requests, external decisions, and draft/reading-anchor preservation. Agent decisions use a mocked provider in these checks; no new live-model approval quality evaluation was performed.
 
 Compact approval follow-up: production build and all six TUI tests passed, including raw command display, detail expansion, long-content paging, and a 50-column terminal. The runtime was unchanged.
+
+Collapsible history checks cover live reasoning payloads, exact snapshot restoration, default-collapsed records, tool errors, per-turn deduplication, live-to-persisted identity, actual mouse press/release coordinates, Ctrl+E, and composer draft preservation. All 54 tests and type checking passed.

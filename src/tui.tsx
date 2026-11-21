@@ -11,6 +11,8 @@ export function App({ client }: { client: OrchestratorClient }) {
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [info, setInfo] = useState<Awaited<ReturnType<OrchestratorClient['info']>>>();
   const [expandedApproval, setExpandedApproval] = useState<string>();
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [reasoning, setReasoning] = useState<Record<string, string>>({});
   const [thinking, setThinking] = useState<Record<string, boolean>>({});
   const [view, setView] = useState<View>('Chat'); const [index, setIndex] = useState(0);
   const [historyAnchor, setHistoryAnchor] = useState<HistoryAnchor>();
@@ -43,7 +45,10 @@ export function App({ client }: { client: OrchestratorClient }) {
       for await (const event of client.events(initial.lastSeq, controller.signal)) {
         if (event.type === 'approval.mode_changed') setInfo(await client.info());
         if (event.runId && event.type === 'message.thinking') {
-          const id = event.runId; setThinking(current => current[id] ? current : { ...current, [id]: true }); continue;
+          const id = event.runId; setThinking(current => current[id] ? current : { ...current, [id]: true });
+          const text = (event.data as { text?: string }).text;
+          if (text) setReasoning(current => ({ ...current, [id]: (current[id] ?? '') + text }));
+          continue;
         }
         if (event.runId && event.type === 'message.delta') {
           const id = event.runId; setThinking(current => ({ ...current, [id]: false })); const text = (event.data as { text: string }).text;
@@ -51,6 +56,7 @@ export function App({ client }: { client: OrchestratorClient }) {
         } else {
           if (event.runId && ['run.step', 'message.completed', 'run.completed', 'run.failed', 'run.cancelled'].includes(event.type)) {
             const id = event.runId; setThinking(current => ({ ...current, [id]: false })); setStreaming(current => { const next = { ...current }; delete next[id]; return next; });
+            setReasoning(current => { const next = { ...current }; delete next[id]; return next; });
           }
           if (!timer) timer = setTimeout(() => { timer = undefined; void refresh().catch(error => setNotice(String(error))); }, 80);
         }
@@ -145,10 +151,16 @@ export function App({ client }: { client: OrchestratorClient }) {
   const bodyHeight = Math.max(2, size.rows - 6 - (view === 'Chat' ? 3 + menuHeight : panelHeight));
   const transcriptHeight = Math.max(1, bodyHeight - 1);
   const contentHeight = view === 'Chat' ? transcriptHeight : panelHeight - 4 - (['Sessions', 'History'].includes(view) ? 1 : 0);
-  const chat = transcript(state, sessionId, streaming, contentWidth);
+  const chat = transcript(state, sessionId, streaming, contentWidth, expanded, reasoning);
   const top = historyTop(chat, transcriptHeight, historyAnchor);
   const aboveLatest = Math.max(0, chat.length - top - transcriptHeight);
   const currentTurn = allTurns.findIndex(task => task.id === chat[top]?.turnId) + 1;
+  const toggleDisclosure = (line: Line | undefined) => {
+    if (!line?.disclosureId) return;
+    const id = line.disclosureId;
+    setHistoryAnchor(anchorAt(chat, top));
+    setExpanded(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  };
   const moveHistory = (delta: number) => setHistoryAnchor(current => {
     const bottom = Math.max(0, chat.length - transcriptHeight);
     const next = Math.max(0, historyTop(chat, transcriptHeight, current) + delta);
@@ -164,10 +176,14 @@ export function App({ client }: { client: OrchestratorClient }) {
   const scroll = Math.min(offset, maxOffset);
   const editInput = (value: string) => { setInput(value); setCompletionIndex(0); setDismissed(false); };
   useInput((text, key) => {
-    const mouse = /^\[<(\d+);\d+;\d+([mM])$/.exec(text);
+    const mouse = /^\[<(\d+);(\d+);(\d+)([mM])$/.exec(text);
     if (mouse) {
       const button = Number(mouse[1]);
-      if (mouse[2] === 'M' && (button & 64) && (button & 3) < 2) {
+      const y = Number(mouse[3]);
+      if (mouse[4] === 'M' && button === 0 && view === 'Chat' && y >= 5 && y < 5 + transcriptHeight) {
+        toggleDisclosure(chat[top + y - 5]); return;
+      }
+      if (mouse[4] === 'M' && (button & 64) && (button & 3) < 2) {
         const direction = button & 1 ? 1 : -1;
         if (view === 'Chat') moveHistory(direction * 3);
         else setIndex(current => Math.max(0, Math.min(list.length - 1, current + direction)));
@@ -178,6 +194,7 @@ export function App({ client }: { client: OrchestratorClient }) {
     if (key.escape) { if (completions.length) setDismissed(true); else if (view !== 'Chat') switchView('Chat'); else setInput(''); return; }
     if (busy) return;
     if (key.ctrl) {
+      if (text === 'e' && view === 'Chat') { toggleDisclosure(chat.slice(top, top + transcriptHeight).find(line => line.disclosureId)); return; }
       if (text === 'n') newChat();
       const shortcuts: Record<string, View> = { g: 'Chat', r: 'History', p: 'Sessions', t: 'Agents', o: 'Approvals' };
       if (shortcuts[text]) switchView(shortcuts[text]!);
@@ -292,7 +309,7 @@ export function App({ client }: { client: OrchestratorClient }) {
       <Box flexGrow={1} />
       <Text dimColor wrap="truncate-end">↑↓ select · Enter open · Esc back</Text>
     </Box>}
-    <Text dimColor wrap="truncate-end">{view === 'Approvals' ? [approvals.length > 1 ? ' ↑↓ requests' : '', maxOffset ? ` PgUp/PgDn · lines ${scroll + 1}–${Math.min(scroll + detailHeight, approvalCard.lines.length)}/${approvalCard.lines.length}` : ''].filter(Boolean).join(' ·') || ' ' : ' ↑↓/wheel scroll · Ctrl+R turns · Alt+↑↓ jump · Home/End · / commands'}</Text>
+    <Text dimColor wrap="truncate-end">{view === 'Approvals' ? [approvals.length > 1 ? ' ↑↓ requests' : '', maxOffset ? ` PgUp/PgDn · lines ${scroll + 1}–${Math.min(scroll + detailHeight, approvalCard.lines.length)}/${approvalCard.lines.length}` : ''].filter(Boolean).join(' ·') || ' ' : ' ↑↓ scroll · Click ▸ / Ctrl+E details · Ctrl+R turns · / commands'}</Text>
   </Box>;
 }
 

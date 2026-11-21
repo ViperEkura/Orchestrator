@@ -4,7 +4,7 @@ import type { Approval, State, Task } from './domain.js';
 
 export type View = 'Chat' | 'History' | 'Sessions' | 'Agents' | 'Approvals';
 export const views: View[] = ['Chat', 'History', 'Sessions', 'Agents', 'Approvals'];
-export type Line = { text: string; color?: string; bold?: boolean; selected?: boolean; turnId?: string; turnLine?: number };
+export type Line = { text: string; color?: string; bold?: boolean; selected?: boolean; turnId?: string; turnLine?: number; disclosureId?: string };
 export const clean = (text: string) => text.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
 export const short = (id: string) => id.slice(0, 8);
 export const statusColor = (status: string) => status === 'completed' ? 'green' : ['failed', 'interrupted'].includes(status) ? 'red' : 'yellow';
@@ -14,7 +14,7 @@ export function conversations(state?: State): Task[] {
   for (const task of Object.values(state?.tasks ?? {})) if (!task.parentTaskId) { latest.delete(task.sessionId); latest.set(task.sessionId, task); }
   return [...latest.values()].reverse();
 }
-export function transcript(state: State | undefined, sessionId: string | undefined, streaming: Record<string, string>, width: number): Line[] {
+export function transcript(state: State | undefined, sessionId: string | undefined, streaming: Record<string, string>, width: number, expanded: ReadonlySet<string> = new Set(), reasoning: Record<string, string> = {}): Line[] {
   if (!state || !sessionId) return [];
   const lines: Line[] = [];
   const add = (text: string, color?: string, bold = false) => lines.push(...wrap(text, width).map(text => ({ text, color, bold })));
@@ -24,12 +24,28 @@ export function transcript(state: State | undefined, sessionId: string | undefin
     for (const runId of task.runIds) {
       const run = state.runs[runId]; if (!run) continue;
       add(`${run.config.name.toUpperCase()} · ${run.status}${run.attempt > 1 ? ` · attempt ${run.attempt}` : ''}`, statusColor(run.status), true);
-      // Previous turns are copied into model context; display only this turn's new messages.
-      const start = run.messages.findLastIndex(message => message.role === 'user');
-      for (const message of run.messages.slice(start + 1)) {
+      // Match the actual user turn, excluding context copied from older turns.
+      const start = run.messages.findLastIndex(message => message.role === 'user' && message.content === task.objective);
+      const disclosure = (id: string, label: string, body: () => string, color = 'gray') => {
+        lines.push({ text: (expanded.has(id) ? '▾ ' : '▸ ') + clean(label).replace(/\n/g, ' '), color, disclosureId: id });
+        if (expanded.has(id)) add(body(), 'gray');
+      };
+      for (let i = Math.max(0, start + 1); i < run.messages.length; i++) {
+        const message = run.messages[i]!;
+        if (message.reasoningContent) disclosure(runId + ':thinking:' + i, 'Thinking', () => message.reasoningContent!);
         if (message.role === 'assistant' && message.content) lines.push(...renderMarkdown(message.content, width).map(text => ({ text })));
-        if (message.toolCalls?.length) add(message.toolCalls.map(call => `Tool: ${call.name}`).join(' · '), 'gray');
+        for (const call of message.toolCalls ?? []) {
+          const result = run.messages.slice(i + 1).find(m => m.role === 'tool' && m.toolCallId === call.id);
+          const approval = Object.values(state.approvals).find(a => a.runId === runId && a.toolCallId === call.id);
+          const outcome = parseJSON(result?.content ?? 'null');
+          const failed = outcome && typeof outcome === 'object' && ('error' in outcome || ('exitCode' in outcome && outcome.exitCode !== 0));
+          const status = approval?.status === 'denied' ? 'denied' : result ? failed ? 'failed' : 'completed' : approval?.status === 'pending' ? 'waiting approval' : ['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status) ? 'not executed' : 'pending';
+          disclosure(runId + ':tool:' + i + ':' + call.id, call.name + ' · ' + status,
+            () => 'Arguments\n' + prettyJSON(call.arguments) + '\n\nResult\n' + (result ? prettyJSON(result.content) : 'No result yet.'),
+            status === 'failed' || status === 'denied' ? 'red' : 'gray');
+        }
       }
+      if (reasoning[runId]) disclosure(runId + ':thinking:' + run.messages.length, 'Thinking…', () => reasoning[runId]!);
       if (streaming[runId]) lines.push(...renderMarkdown(streaming[runId]!, width, false).map(text => ({ text })));
       add('');
     }
@@ -72,4 +88,10 @@ export function approvalPreview(approval: Approval | undefined, state: State | u
   else if (write) { add(args.path as string, 'cyan'); add(args.content as string); }
   else add(JSON.stringify(approval.arguments, null, 2));
   return { title, lines };
+}
+
+function parseJSON(text: string): unknown { try { return JSON.parse(text); } catch { return text; } }
+function prettyJSON(text: string): string {
+  const value = parseJSON(text);
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }
