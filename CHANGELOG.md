@@ -47,3 +47,8 @@
 - Show model-provided thinking and tool calls inline, collapsed by default.
 - Add mouse and Ctrl+E expansion for arguments, results and reasoning.
 - Stream thinking into the same record used by completed history.
+
+### Inline detail previews
+
+- Add single-line thinking and tool argument previews to disclosure rows.
+- Collapse whitespace and truncate long previews to terminal display width.

@@ -1,4 +1,5 @@
 import wrapAnsi from 'wrap-ansi';
+import stringWidth from 'string-width';
 import { renderMarkdown } from './markdown.js';
 import type { Approval, State, Task } from './domain.js';
 
@@ -27,12 +28,12 @@ export function transcript(state: State | undefined, sessionId: string | undefin
       // Match the actual user turn, excluding context copied from older turns.
       const start = run.messages.findLastIndex(message => message.role === 'user' && message.content === task.objective);
       const disclosure = (id: string, label: string, body: () => string, color = 'gray') => {
-        lines.push({ text: (expanded.has(id) ? '▾ ' : '▸ ') + clean(label).replace(/\n/g, ' '), color, disclosureId: id });
+        lines.push({ text: singleLine((expanded.has(id) ? '▾ ' : '▸ ') + label, width), color, disclosureId: id });
         if (expanded.has(id)) add(body(), 'gray');
       };
       for (let i = Math.max(0, start + 1); i < run.messages.length; i++) {
         const message = run.messages[i]!;
-        if (message.reasoningContent) disclosure(runId + ':thinking:' + i, 'Thinking', () => message.reasoningContent!);
+        if (message.reasoningContent) disclosure(runId + ':thinking:' + i, 'Thinking · ' + message.reasoningContent, () => message.reasoningContent!);
         if (message.role === 'assistant' && message.content) lines.push(...renderMarkdown(message.content, width).map(text => ({ text })));
         for (const call of message.toolCalls ?? []) {
           const result = run.messages.slice(i + 1).find(m => m.role === 'tool' && m.toolCallId === call.id);
@@ -40,12 +41,12 @@ export function transcript(state: State | undefined, sessionId: string | undefin
           const outcome = parseJSON(result?.content ?? 'null');
           const failed = outcome && typeof outcome === 'object' && ('error' in outcome || ('exitCode' in outcome && outcome.exitCode !== 0));
           const status = approval?.status === 'denied' ? 'denied' : result ? failed ? 'failed' : 'completed' : approval?.status === 'pending' ? 'waiting approval' : ['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status) ? 'not executed' : 'pending';
-          disclosure(runId + ':tool:' + i + ':' + call.id, call.name + ' · ' + status,
+          disclosure(runId + ':tool:' + i + ':' + call.id, call.name + ' · ' + status + ' · ' + toolSummary(call.name, call.arguments),
             () => 'Arguments\n' + prettyJSON(call.arguments) + '\n\nResult\n' + (result ? prettyJSON(result.content) : 'No result yet.'),
             status === 'failed' || status === 'denied' ? 'red' : 'gray');
         }
       }
-      if (reasoning[runId]) disclosure(runId + ':thinking:' + run.messages.length, 'Thinking…', () => reasoning[runId]!);
+      if (reasoning[runId]) disclosure(runId + ':thinking:' + run.messages.length, 'Thinking… · ' + reasoning[runId], () => reasoning[runId]!);
       if (streaming[runId]) lines.push(...renderMarkdown(streaming[runId]!, width, false).map(text => ({ text })));
       add('');
     }
@@ -94,4 +95,21 @@ function parseJSON(text: string): unknown { try { return JSON.parse(text); } cat
 function prettyJSON(text: string): string {
   const value = parseJSON(text);
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+function singleLine(text: string, width: number): string {
+  const plain = clean(text).replace(/\s+/g, ' ').trim();
+  return stringWidth(plain) <= width ? plain : wrap(plain, Math.max(1, width - 1))[0]!.trimEnd() + '…';
+}
+function toolSummary(name: string, argumentsText: string): string {
+  const args = parseJSON(argumentsText);
+  if (!args || typeof args !== 'object') return argumentsText;
+  if ('objective' in args && typeof args.objective === 'string') return ('agentId' in args ? String(args.agentId) + ': ' : '') + args.objective;
+  for (const field of ['command', 'path', 'query', 'url']) {
+    const value = (args as Record<string, unknown>)[field];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  if ('taskIds' in args && Array.isArray(args.taskIds)) return 'Wait for ' + args.taskIds.length + ' task(s)';
+  if (name === 'list_files') return 'List workspace files';
+  return Object.keys(args).length ? JSON.stringify(args) : 'No arguments';
 }
