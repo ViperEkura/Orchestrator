@@ -53,3 +53,7 @@ Errors use `{ "error": "..." }`: schema validation 400, authentication 401, host
 ## Questions and task plans
 
 `ask_user` creates a durable question with task/run/tool-call IDs, text, optional choices, and `pending` status. Its run enters `waiting_user` without holding an execution slot. Use `client.answer(id, answer)` or POST `/v1/questions/:id`; answers may be custom text. The answer is saved, returned as a tool result, and execution resumes. Repeated or stale answers return 409. Cancellation, deadlines and recovery cancel pending questions; approval mode does not answer them. Events include `question.requested`, `question.answered` and `task.plan_updated`. Plans live in `tasks[id].todos`.
+
+## Graphical client additions
+
+`POST /v1/tasks` accepts an optional `cwd` for a new session: an existing local directory. Supplying both `cwd` and `sessionId` is rejected; session workspaces are immutable. `GET /v1/artifacts/:id?offset=0` returns `{content,total,nextOffset}` with at most 64,000 characters per page and requires the same authentication as other APIs. The web command serves only `/`, `/index.html`, `/app.js`, `/app.css`; static assets contain no credentials.

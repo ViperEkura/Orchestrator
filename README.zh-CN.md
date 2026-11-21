@@ -111,3 +111,7 @@ npm.cmd start -- migrate C:\Develop\Orchestrator\.orchestrator\state.sqlite --ou
 `src/core` 放领域类型和运行时；`storage` 放持久化；`models` 放模型适配；`tools` 放工具；`transport` 放 HTTP、SDK 和 SSE；`tui` 放终端界面。根目录保留 `main.ts` 与 `index.ts`，启动命令不变。
 
 已加入 `grep`、`glob`、多层目录列表、分页读取、局部编辑、长输出回读、`ask_user` 和 `todo_write`。只读查询支持受限并发，写入按顺序执行；问题自动弹出，表格按逻辑行分隔。参数与限制见 [工具文档](docs/TOOLS.md)。ripgrep 随 npm 依赖安装，无需全局安装。
+
+## 图形客户端
+
+运行 `npm run desktop` 打开桌面窗口；运行 `npm run web` 后在浏览器打开输出的网址。两者共用现有会话、审批与多 agent 运行时。详见 [客户端文档](docs/CLIENTS.md)。数学公式试验已移除。

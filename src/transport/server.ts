@@ -1,15 +1,16 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { serveWeb } from './web.js';
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { approvalModes } from '../core/domain.js';
 import type { OrchestratorService } from '../core/runtime.js';
 
 const delegationSchema = z.object({ agentId: z.string(), objective: z.string().trim().min(1).max(16000), workspace: z.enum(['read-only', 'worktree']).optional(), after: z.array(z.number().int().nonnegative()).max(16).optional() }).strict();
-const submitSchema = z.object({ delegations: z.array(delegationSchema).min(1).max(16).optional(), objective: z.string().trim().min(1).max(16000), agentId: z.string().optional(), sessionId: z.string().uuid().optional() }).strict();
+const submitSchema = z.object({ cwd: z.string().min(1).max(4096).optional(), delegations: z.array(delegationSchema).min(1).max(16).optional(), objective: z.string().trim().min(1).max(16000), agentId: z.string().optional(), sessionId: z.string().uuid().optional() }).strict();
 const decisionSchema = z.object({ decision: z.enum(['approved', 'denied']) }).strict();
 const loopback = (host: string) => ['127.0.0.1', 'localhost', '::1'].includes(host);
 
-export async function startServer(runtime: OrchestratorService, options: { host?: string; port?: number; token?: string } = {}) {
+export async function startServer(runtime: OrchestratorService, options: { host?: string; port?: number; token?: string; webRoot?: string } = {}) {
   const host = options.host ?? '127.0.0.1';
   if (!loopback(host) && (!options.token || options.token.length < 24)) throw new Error('Non-loopback binding requires a bearer token of at least 24 characters');
   const streams = new Set<ServerResponse>();
@@ -21,11 +22,13 @@ export async function startServer(runtime: OrchestratorService, options: { host?
     const requestHost = req.headers.host ?? '';
     if (loopback(host) && !/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(requestHost)) { send(res, 403, { error: 'Invalid host' }); return; }
     if (req.headers.origin && req.headers.origin !== `http://${requestHost}`) { send(res, 403, { error: 'Cross-origin access denied' }); return; }
+    const url = new URL(req.url ?? '/', `http://${requestHost || 'localhost'}`);
+    if (options.webRoot && await serveWeb(req, res, url.pathname, options.webRoot)) return;
     if (options.token) {
       const expected = Buffer.from(`Bearer ${options.token}`); const received = Buffer.from(req.headers.authorization ?? '');
       if (received.length !== expected.length || !timingSafeEqual(received, expected)) { send(res, 401, { error: 'Unauthorized' }); return; }
     }
-    const url = new URL(req.url ?? '/', `http://${requestHost || 'localhost'}`);
+
     if (req.method === 'GET' && url.pathname === '/health') { send(res, 200, { status: 'ok', version: '0.1.0' }); return; }
     if (req.method === 'GET' && url.pathname === '/v1/snapshot') { send(res, 200, runtime.store.snapshot()); return; }
     if (req.method === 'GET' && url.pathname === '/v1/info') { send(res, 200, runtime.info()); return; }
@@ -48,6 +51,12 @@ export async function startServer(runtime: OrchestratorService, options: { host?
       const cleanup = () => { clearInterval(heartbeat); unsubscribe(); streams.delete(res); };
       res.once('close', cleanup); if (res.writableEnded) cleanup();
       return;
+    }
+    const artifact = /^\/v1\/artifacts\/([^/]+)$/.exec(url.pathname);
+    if (req.method === 'GET' && artifact) {
+      const offset = z.coerce.number().int().nonnegative().parse(url.searchParams.get('offset') ?? 0);
+      const content = runtime.store.readArtifact(artifact[1]!);
+      send(res, 200, { content: content.slice(offset, offset + 64000), total: content.length, nextOffset: offset + 64000 < content.length ? offset + 64000 : null }); return;
     }
     if (req.method === 'POST') {
       if (!req.headers['content-type']?.startsWith('application/json')) { send(res, 415, { error: 'JSON content type required' }); return; }

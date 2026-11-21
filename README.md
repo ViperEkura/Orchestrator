@@ -169,3 +169,7 @@ src/
 The CLI remains `src/main.ts`; public exports remain in `src/index.ts`. The `orchestrator/client` package export resolves to `transport/client`. Tests stay in `tests/` and import the relevant modules directly.
 
 Built-in `grep`, `glob`, recursive listing, paged reads, exact edits, recoverable tool outputs, user questions and task plans are available. Read [tool arguments and limits](docs/TOOLS.md). Ripgrep is installed with npm dependencies; no global `rg` command is required.
+
+## Graphical clients
+
+Run `npm run desktop` for an native Windows app, or `npm run web` and open the printed local URL. Both share your existing runtime, conversations, approvals and agents. See [Desktop and web clients](docs/CLIENTS.md) for launch options and scope.

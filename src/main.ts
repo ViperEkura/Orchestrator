@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -13,7 +14,7 @@ async function main() {
   const args = process.argv.slice(2); const command = args.shift();
   const option = (name: string) => { const index = args.indexOf(name); if (index < 0) return undefined; const value = args[index + 1]; if (!value || value.startsWith('--')) throw new Error(`${name} requires a value`); args.splice(index, 2); return value; };
   if (!command || command === '--help') {
-    console.log('Orchestrator\nCommands: init | server | tui [--url URL] | demo [objective] | migrate <sqlite-file> [--output directory]\nOptions: --cwd <project-directory>\nConfiguration: ~/.orchestrator/settings.json + <project>/.orchestrator/settings.json'); return;
+    console.log('Orchestrator\nCommands: init | server | web | tui [--url URL] | demo [objective] | migrate <sqlite-file> [--output directory]\nOptions: --cwd <project-directory>\nConfiguration: ~/.orchestrator/settings.json + <project>/.orchestrator/settings.json'); return;
   }
   const cwd = resolve(option('--cwd') ?? process.cwd());
   const home = resolve(process.env.ORCHESTRATOR_DATA_DIR ?? join(homedir(), '.orchestrator'));
@@ -22,7 +23,7 @@ async function main() {
     if (!source) throw new Error('Usage: migrate <sqlite-file> [--output new-directory]');
     const { migrateLegacy } = await import('./storage/migrate.js'); console.log(await migrateLegacy(source, output)); return;
   }
-  if (!['init', 'server', 'tui', 'demo'].includes(command)) throw new Error(`Unknown command: ${command}`);
+  if (!['init', 'server', 'web', 'tui', 'demo'].includes(command)) throw new Error(`Unknown command: ${command}`);
   const url = option('--url');
   if (command === 'tui' && url) { await startTui(new OrchestratorClient(url, process.env.ORCHESTRATOR_TOKEN)); return; }
   if (command === 'tui' && !process.stdin.isTTY) throw new Error('TUI requires a terminal; use npm run demo');
@@ -48,7 +49,7 @@ async function main() {
       const done = await runtime.waitUntilDone(task.id);
       console.log(`\nStatus: ${done.status}\n${done.result ?? done.error ?? ''}`); off(); if (done.status !== 'completed') process.exitCode = 1;
     } else {
-      server = await startServer(runtime, { host: settings.host, port: command === 'tui' ? 0 : settings.port, token: process.env.ORCHESTRATOR_TOKEN });
+      server = await startServer(runtime, { host: settings.host, port: command === 'tui' ? 0 : settings.port, token: process.env.ORCHESTRATOR_TOKEN, ...(command === 'web' ? { webRoot: fileURLToPath(new URL('../web/', import.meta.url)) } : {}) });
       if (command === 'tui') await startTui(new OrchestratorClient(server.url, process.env.ORCHESTRATOR_TOKEN));
       else {
         console.log(`Orchestrator (${providerName}) listening on ${server.url}\nData: ${home}\nProject: ${cwd}\nCtrl+C to shut down.`);

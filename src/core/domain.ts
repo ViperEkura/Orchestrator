@@ -50,4 +50,4 @@ export type ModelChunk = { type: 'text'; text: string } | { type: 'reasoning'; t
 export interface ModelProvider {
   stream(messages: Message[], tools: ToolSpec[], signal: AbortSignal): AsyncIterable<ModelChunk>;
 }
-export interface SubmitInput { delegations?: DelegationPlan[]; objective: string; agentId?: string; sessionId?: string }
+export interface SubmitInput { cwd?: string; delegations?: DelegationPlan[]; objective: string; agentId?: string; sessionId?: string }

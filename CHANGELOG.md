@@ -71,3 +71,10 @@
 - Preserve large outputs as artifacts and expose scoped paged reads.
 - Add durable user questions, API/SDK answers and automatic TUI question cards.
 - Add persisted task plans and separators between Markdown table rows.
+
+### Graphical clients
+
+- Add shared React desktop/web conversations, project navigation, streaming Markdown and collapsible activity.
+- Add automatic approval/question dialogs, explicit agent selection, task navigation and output previews.
+- Add an standalone desktop launcher and same-origin web hosting with authenticated APIs.
+- Remove the uncommitted terminal math experiment.

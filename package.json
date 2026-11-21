@@ -18,27 +18,37 @@
     "node": ">=24.14.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/build-web.mjs",
     "check": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "server": "tsx src/main.ts server",
     "tui": "tsx src/main.ts tui",
     "demo": "tsx src/main.ts demo",
-    "start": "node dist/src/main.js"
+    "start": "node dist/src/main.js",
+    "build:web": "node scripts/build-web.mjs",
+    "web": "npm run build && node dist/src/main.js web",
+    "desktop": "npm run package:desktop && dist\\windows\\Orchestrator\\Orchestrator.exe",
+    "test:web": "npm run package:desktop && playwright test",
+    "package:desktop": "npm run build && pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/package-desktop.ps1"
   },
   "dependencies": {
     "@vscode/ripgrep": "1.18.0",
     "chalk": "5.6.2",
+    "dompurify": "3.4.18",
     "ink": "^6.0.0",
     "marked": "18.2.1",
     "react": "^19.0.0",
+    "react-dom": "19.3.1",
     "string-width": "8.3.0",
     "wrap-ansi": "9.0.2",
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
+    "@types/react-dom": "19.3.0",
+    "esbuild": "0.28.2",
     "tsx": "^4.20.0",
     "typescript": "~5.9.3"
   }

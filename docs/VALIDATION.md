@@ -28,7 +28,7 @@ Commands: `npm.cmd run check`, `npm.cmd test`, `npm.cmd run build`.
 
 Credentials were read from the existing OpenCode credential file and never printed or packaged. Global settings were backed up before modification. Existing running user processes were not stopped.
 
-Normal startup does not import SQLite. Legacy migration tests may emit Node's experimental SQLite warning. This remains a local, single-user runtime; it is not load-tested for distributed operation. Remaining work includes compaction, independent session export/deletion, artifact downloads, advanced input editing, peer mailboxes, and actual web/desktop interfaces.
+Normal startup does not import SQLite. Legacy migration tests may emit Node's experimental SQLite warning. This remains a local, single-user runtime; it is not load-tested for distributed operation. Remaining work includes compaction, independent session export/deletion, artifact downloads, advanced input editing, peer mailboxes, and signed desktop installers.
 
 Additional checks cover Markdown emphasis, Unicode table alignment/wrapping, escaped pipes, literal code, partial streams, terminal-control removal, live/persisted layout equivalence, startup help, and automatic return from approval queues resolved locally or by another client.
 
@@ -41,3 +41,5 @@ Collapsible history checks cover live reasoning payloads, exact snapshot restora
 Source layout refactor: type checking, all 54 tests and production build passed. Compiled CLI help and the orchestrator / orchestrator/client package exports load successfully from their new paths.
 
 Coding-tool update: all 64 tests, type checking and production build passed. New integration checks cover bundled-ripgrep search/exclusions, Windows canonical paths, symlink rejection, paged large-file reads, CRLF-preserving exact edits, parallel reads with write barriers, ordered error results, question answers/cancellation/recovery/deadlines, task plans, cross-session artifact rejection, complete 40k-character command output, role upgrades and table row separators. Question-card choices, custom text, drafts and narrow-terminal paging are exercised through Ink input streams.
+
+Graphical client update: 64 runtime/TUI tests passed; browser integration covers streaming, Markdown sanitization, approvals, questions, teams, projects, cancellation, output paging, history and responsive layout. The packaged Windows exe is separately exercised for startup, messaging, reload and clean shutdown. Test data is isolated; no paid model calls are made.

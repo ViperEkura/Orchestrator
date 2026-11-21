@@ -1,0 +1,12 @@
+import { build } from 'esbuild';
+import { cp, mkdir, copyFile, writeFile } from 'node:fs/promises';
+import { resolve, join } from 'node:path';
+const root = resolve(process.argv[2] ?? 'dist/windows/Orchestrator');
+const resources=join(root,'resources');
+await mkdir(resources,{recursive:true});
+await build({entryPoints:['src/desktop/server.ts'],bundle:true,outfile:join(resources,'runtime.mjs'),platform:'node',format:'esm',target:'node24',external:['@vscode/ripgrep'],banner:{js:"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);"}});
+await cp('dist/web',join(resources,'web'),{recursive:true});
+await copyFile(process.execPath,join(resources,'node.exe'));
+for(const name of ['ripgrep','ripgrep-win32-x64']) await cp('node_modules/@vscode/'+name,join(resources,'node_modules/@vscode',name),{recursive:true});
+await writeFile(join(root,'README.txt'),'Orchestrator 0.1 - Windows x64\r\n\r\nDouble-click Orchestrator.exe. Keep resources and DLLs beside it.\r\nNo Node.js or npm installation required. Uses Microsoft WebView2 Runtime.\r\nIf missing, run MicrosoftEdgeWebview2Setup.exe once.\r\nSettings and history: %USERPROFILE%\\.orchestrator\r\nDefault workspace: Documents\\Orchestrator. Use + beside Projects to select another directory.\r\nCLI option: Orchestrator.exe --cwd C:\\Develop\\MyProject\r\nClose other Orchestrator runtimes using the same data directory before launch.\r\nThis development build is unsigned.\r\n');
+console.log(root);

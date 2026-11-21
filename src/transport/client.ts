@@ -1,5 +1,5 @@
 import { readSSE, pause } from './sse.js';
-import type { ApprovalMode, Run, RuntimeEvent, Snapshot, SubmitInput, Task } from '../core/domain.js';
+import type { AgentDefinition, ApprovalMode, Run, RuntimeEvent, Snapshot, SubmitInput, Task } from '../core/domain.js';
 
 export class OrchestratorClient {
   constructor(readonly url: string, private token?: string) {}
@@ -14,6 +14,8 @@ export class OrchestratorClient {
   }
   info(): Promise<{ cwd: string; model: string; provider: string; defaultAgent: string; approvalMode: ApprovalMode }> { return this.request('/v1/info'); }
   setApprovalMode(mode: ApprovalMode): ReturnType<OrchestratorClient['info']> { return this.request('/v1/approval-mode', { mode }); }
+  agents(): Promise<AgentDefinition[]> { return this.request('/v1/agents'); }
+  artifact(id: string, offset = 0): Promise<{ content: string; total: number; nextOffset: number | null }> { return this.request(`/v1/artifacts/${encodeURIComponent(id)}?offset=${offset}`); }
   snapshot(): Promise<Snapshot> { return this.request('/v1/snapshot'); }
   submit(input: SubmitInput): Promise<Task> { return this.request('/v1/tasks', input); }
   cancel(taskId: string): Promise<{ ok: boolean }> { return this.request(`/v1/tasks/${encodeURIComponent(taskId)}/cancel`, {}); }

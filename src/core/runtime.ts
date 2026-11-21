@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { terminal, approvalModes, type QuestionInput, type TodoItem, type ApprovalMode, type AgentDefinition, type DelegationInput, type Message, type ModelProvider, type Run, type State, type SubmitInput, type Task, type ToolCall } from './domain.js';
 import { judgeApproval } from './approval.js';
 import { StateStore } from '../storage/store.js';
@@ -86,10 +86,13 @@ export class OrchestratorService {
         if (plan.after?.some(index => !Number.isInteger(index) || index < 0 || index >= i)) throw new Error('Dependencies must reference earlier plan entries');
       });
     }
+    if (input.sessionId && input.cwd) throw new Error('Existing sessions keep their project directory');
+    const cwd = input.cwd ? realpathSync(resolve(input.cwd)) : this.options.workspaceDir;
+    if (!statSync(cwd).isDirectory()) throw new Error('Project must be an existing directory');
     const task = this.makeTask(input.objective, agentId, input.sessionId ?? randomUUID());
     if (input.delegations?.length) task.delegations = structuredClone(input.delegations);
     this.store.change('task.created', { objective: task.objective }, s => {
-      s.sessions[task.sessionId] ??= { id: task.sessionId, createdAt: task.createdAt, cwd: this.options.workspaceDir, workspace: 'project' };
+      s.sessions[task.sessionId] ??= { id: task.sessionId, createdAt: task.createdAt, cwd, workspace: 'project' };
       s.budgets[task.id] = { stepsUsed: 0, maxSteps: this.options.maxSteps ?? 40, maxTasks: this.options.maxTasks ?? 16, maxDepth: this.options.maxDepth ?? 3 };
       this.insertTask(s, task);
     }, { taskId: task.id });

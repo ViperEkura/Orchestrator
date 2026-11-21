@@ -112,3 +112,7 @@ src/
 ```
 
 The CLI remains `src/main.ts`; public exports remain in `src/index.ts`. The `orchestrator/client` package export resolves to `transport/client`. Tests stay in `tests/` and import the relevant modules directly.
+
+## Graphical client layer
+
+The React client in `src/web` uses the browser-compatible SDK and SSE stream. The WinForms/WebView2 host in `src/desktop` displays the same assets and owns a bundled local runtime. The storage format and provider integration are shared with the TUI. The transport serves only explicitly allowlisted built assets from `dist/web`.
