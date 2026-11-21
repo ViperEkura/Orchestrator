@@ -4,7 +4,7 @@ Validated on Windows with Node.js 24.14 and npm 11.12.
 
 ## Automated checks
 
-Type check and production build passed. All 40 tests passed, covering:
+Type check and production build passed. All 51 tests passed, covering:
 
 - Direct two-turn streaming, persisted messages, and retained provider reasoning metadata.
 - Structured sub-agent/team plans, API/SDK transport, sibling dependencies, concurrency permits, and shared budgets.
@@ -31,3 +31,5 @@ Credentials were read from the existing OpenCode credential file and never print
 Normal startup does not import SQLite. Legacy migration tests may emit Node's experimental SQLite warning. This remains a local, single-user runtime; it is not load-tested for distributed operation. Remaining work includes compaction, independent session export/deletion, artifact downloads, advanced input editing, peer mailboxes, and actual web/desktop interfaces.
 
 Additional checks cover Markdown emphasis, Unicode table alignment/wrapping, escaped pipes, literal code, partial streams, terminal-control removal, live/persisted layout equivalence, startup help, and automatic return from approval queues resolved locally or by another client.
+
+Approval-mode checks cover manual/agent/all execution, agent denial, uncertain/invalid/failed review fallback, cancellation during review, shared review budgets, capability enforcement, API/config validation, and in-place mode completion. TUI regression checks cover automatic arrival, dismiss/reopen behavior, unchanged queue counts with new IDs, multiple pending requests, external decisions, and draft/reading-anchor preservation. Agent decisions use a mocked provider in these checks; no new live-model approval quality evaluation was performed.

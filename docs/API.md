@@ -44,3 +44,7 @@ Typical client flow: fetch snapshot, subscribe after `lastSeq`, display transien
 Errors use `{ "error": "..." }`: schema validation 400, authentication 401, host/origin denial 403, missing route 404, unsupported content type 415, and other request failures 409. POST bodies are capped at 64 KiB.
 
 `delegations` accepts `{ agentId, objective, workspace?, after? }` entries. See [structured collaboration](COLLABORATION.md). `message.thinking` is a transient activity event without reasoning text; reasoning metadata remains in persisted messages for provider continuity.
+
+### Approval mode
+
+`GET /v1/info` includes `approvalMode`. `POST /v1/approval-mode` accepts `{ "mode": "manual" | "agent" | "all" }` and returns updated runtime info. The SDK exposes `setApprovalMode(mode)`. Changes apply to new calls across the server and emit `approval.mode_changed`; they do not persist settings or resolve pending approvals. Configure `approvalMode` in global/project settings.json or `ORCHESTRATOR_APPROVAL_MODE` for the startup default. Approval records optionally include `mode` and `reason`; older history remains readable.

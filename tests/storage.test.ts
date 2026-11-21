@@ -63,6 +63,9 @@ test('global JSON settings, project overrides, environment precedence and editab
   const dir = await temp(); const cwd = join(dir, 'project'); const home = join(dir, 'home'); mkdirSync(cwd);
   try {
     let config = loadConfig(cwd, { ORCHESTRATOR_DATA_DIR: home });
+    assert.equal(config.settings.approvalMode, 'manual');
+    assert.equal(loadConfig(cwd, { ORCHESTRATOR_DATA_DIR: home, ORCHESTRATOR_APPROVAL_MODE: 'agent' }).settings.approvalMode, 'agent');
+    assert.throws(() => loadConfig(cwd, { ORCHESTRATOR_DATA_DIR: home, ORCHESTRATOR_APPROVAL_MODE: 'invalid' }));
     assert.equal(config.settings.concurrency, 3); assert.equal(config.agents.length, 4);
     atomicJSON(join(home, 'settings.json'), { provider: 'demo', concurrency: 2, port: 4000 });
     atomicJSON(join(cwd, '.orchestrator', 'settings.json'), { concurrency: 4, port: 5000 });

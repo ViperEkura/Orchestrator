@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { approvalModes } from './domain.js';
 import type { OrchestratorService } from './runtime.js';
 
 const delegationSchema = z.object({ agentId: z.string(), objective: z.string().trim().min(1).max(16000), workspace: z.enum(['read-only', 'worktree']).optional(), after: z.array(z.number().int().nonnegative()).max(16).optional() }).strict();
@@ -51,6 +52,7 @@ export async function startServer(runtime: OrchestratorService, options: { host?
     if (req.method === 'POST') {
       if (!req.headers['content-type']?.startsWith('application/json')) { send(res, 415, { error: 'JSON content type required' }); return; }
       const body = await readBody(req);
+      if (url.pathname === '/v1/approval-mode') { send(res, 200, runtime.setApprovalMode(z.object({ mode: z.enum(approvalModes) }).strict().parse(body).mode)); return; }
       if (url.pathname === '/v1/tasks') { send(res, 201, runtime.submit(submitSchema.parse(body))); return; }
       const action = /^\/v1\/tasks\/([^/]+)\/(cancel|retry)$/.exec(url.pathname);
       if (action) {

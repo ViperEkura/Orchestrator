@@ -56,7 +56,7 @@ export function createTools(): ToolRegistry {
       if ((await lstat(path)).size > 131072) throw new Error('File exceeds 128 KiB');
       return { content: await readFile(path, { encoding: 'utf8', signal: ctx.signal }) };
     });
-  add('write_file', 'Write a UTF-8 file in this task workspace. Requires human approval.',
+  add('write_file', 'Write a UTF-8 file in this task workspace. Subject to the configured approval mode.',
     z.object({ path: z.string().min(1).max(500), content: z.string().max(131072) }).strict(), true, async (args, ctx) => {
       const path = await safePath(ctx.workspace, args.path);
       const { dirname } = await import('node:path'); await mkdir(dirname(path), { recursive: true });

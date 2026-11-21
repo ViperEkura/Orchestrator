@@ -22,6 +22,9 @@ test('HTTP SDK, bearer auth, origin checks and replayable SSE', async () => {
     const controller = new AbortController(); const events = client.events(initial.lastSeq, controller.signal);
     assert.equal((await events.next()).value?.type, 'task.created'); controller.abort(); await events.return(undefined);
     assert.equal((await client.snapshot()).state.tasks[task.id]!.status, 'completed');
+    assert.equal((await client.info()).approvalMode, 'manual');
+    assert.equal((await client.setApprovalMode('agent')).approvalMode, 'agent');
+    await assert.rejects(client.setApprovalMode('invalid' as 'manual'), /Invalid/);
     const team = await client.submit({ objective: 'Structured API team', delegations: [{ agentId: 'researcher', objective: 'Inspect' }, { agentId: 'reviewer', objective: 'Review', after: [0] }] });
     await runtime.waitUntilDone(team.id);
     assert.equal(Object.values((await client.snapshot()).state.tasks).filter(child => child.parentTaskId === team.id).length, 2);

@@ -23,9 +23,12 @@ export interface Run {
   id: string; taskId: string; attempt: number; status: Status; steps: number;
   messages: Message[]; config: AgentDefinition; startedAt?: string; finishedAt?: string;
 }
+export const approvalModes = ['manual', 'agent', 'all'] as const;
+export type ApprovalMode = typeof approvalModes[number];
 export interface Approval {
   id: string; taskId: string; runId: string; toolCallId: string;
   toolName: string; arguments: unknown; status: 'pending' | 'approved' | 'denied' | 'cancelled';
+  mode?: ApprovalMode; reason?: string;
   createdAt: string;
 }
 export interface Artifact { id: string; runId: string; taskId: string; path: string; mediaType: string }

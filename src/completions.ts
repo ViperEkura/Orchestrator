@@ -1,4 +1,4 @@
-import { terminal, type State } from './domain.js';
+import { approvalModes, terminal, type State } from './domain.js';
 
 export interface Completion { value: string; label: string; description: string; kind: 'command' | 'argument' }
 const commands = [
@@ -7,6 +7,7 @@ const commands = [
   ['/resume', '', 'Resume a saved conversation'],
   ['/sessions', '', 'Browse and switch conversations'],
   ['/agents', '', 'Inspect the current agent task tree'],
+  ['/approval', '<mode>', 'Set approval mode: manual, agent, all'],
   ['/approvals', '', 'Review pending tool approvals'],
   ['/new', '', 'Start a single-agent conversation'],
   ['/delegate', '<agent-id> <task>', 'Delegate a task to a sub-agent'],
@@ -26,8 +27,10 @@ export function completeInput(input: string, state?: State): Completion[] {
     value: name + (args ? ' ' : ''), label: name + (args ? ` ${args}` : ''), description, kind: 'command'
   }));
   const match = /^(\/\w+)\s+(\S*)$/.exec(input);
-  if (!match || !state) return [];
+  if (!match) return [];
   const [, command, prefix = ''] = match;
+  if (command === '/approval') return approvalModes.filter(mode => mode.startsWith(prefix)).map(mode => ({ value: `/approval ${mode}`, label: mode, description: mode === 'manual' ? 'Ask before each protected tool call' : mode === 'agent' ? 'Agent review; uncertainty asks you' : 'Allow all protected tool calls', kind: 'argument' }));
+  if (!state) return [];
   if (command === '/approve' || command === '/deny') return Object.values(state.approvals)
     .filter(a => a.status === 'pending' && a.id.startsWith(prefix))
     .map(a => ({ value: `${command} ${a.id}`, label: a.id.slice(0, 8), description: `${a.toolName} · task ${a.taskId.slice(0, 8)}`, kind: 'argument' }));

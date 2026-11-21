@@ -149,3 +149,5 @@ The local installation is configured for DeepSeek V4.1 Flash with high thinking 
 ```
 
 The referenced entry must contain `{ "type": "api", "key": "..." }`. Orchestrator reads the key at startup without copying it into settings or logs. `LLM_API_KEY` takes precedence. Provider reasoning metadata is retained and sent back when continuing tool-enabled conversations, as required by [DeepSeek's thinking protocol](https://api-docs.deepseek.com/guides/thinking_mode/).
+
+Approval defaults to **manual** and pending requests open automatically. Use `/approval manual`, `/approval agent`, or `/approval all` to switch the running server; set `approvalMode` in settings.json for the startup default. See [approval behavior](docs/TUI.md#approval-modes-and-automatic-prompts).

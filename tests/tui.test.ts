@@ -38,7 +38,7 @@ class FakeClient extends OrchestratorClient {
   private queued: RuntimeEvent[] = []; private wake?: () => void;
   emit(event: RuntimeEvent) { this.queued.push(event); this.wake?.(); }
   constructor() { super('http://localhost:4317'); }
-  override async info() { return { cwd: 'C:/Develop/example', model: 'test-model', provider: 'compatible', defaultAgent: 'assistant' }; }
+  override async info() { return { cwd: 'C:/Develop/example', model: 'test-model', provider: 'compatible', defaultAgent: 'assistant', approvalMode: 'manual' as const }; }
   override async snapshot() { return structuredClone(this.data); }
   override async *events(_after: number, signal: AbortSignal): AsyncGenerator<RuntimeEvent> {
     const abort = () => this.wake?.(); signal.addEventListener('abort', abort, { once: true });
@@ -66,7 +66,7 @@ test('TUI navigates sessions, history, agents and approvals; new chat clears the
   const app = render(React.createElement(App, { client }), { stdout: output as unknown as NodeJS.WriteStream, stdin: input as unknown as NodeJS.ReadStream, debug: true, patchConsole: false, exitOnCtrlC: false });
   const press = async (key: string) => { input.write(key); await pause(); };
   try {
-    await pause(160); assert.match(frame, /NEW CONVERSATION/); assert.match(frame, /Welcome to Orchestrator/); assert.doesNotMatch(frame, /History line 34|COORDINATOR/);
+    await pause(160); assert.match(frame, /APPROVALS · 1/); await press('\x1b'); assert.match(frame, /NEW CONVERSATION/); assert.match(frame, /Welcome to Orchestrator/); assert.doesNotMatch(frame, /History line 34|COORDINATOR/);
     await press('\x10'); await press('\r'); assert.match(frame, /CHAT · two/); assert.doesNotMatch(frame, /CONVERSATIONS · Ctrl/);
     assert.match(frame, /History line 34/);
     await press('\x1b[5~'); assert.match(frame, /above latest/); assert.doesNotMatch(frame, /History line 34/);
@@ -161,15 +161,23 @@ test('approval queue stays open for remaining requests and returns to the draft 
   try {
     await pause(160); await press('\x10'); await press('\r');
     assert.match(frame, /Formatted answer/); assert.doesNotMatch(frame, /\*\*Formatted answer\*\*/); assert.match(frame, /┌/);
-    await press('unsent draft'); await press('\x0f'); assert.match(frame, /APPROVALS · 2/);
+    await press('\x1b[H'); await press('unsent draft'); await press('\x0f'); assert.match(frame, /APPROVALS · 2/);
     await press('y'); assert.match(frame, /APPROVALS · 1/);
     client.data.state.approvals.second!.status = 'denied';
     client.emit({ seq: 2, type: 'approval.resolved', at: '', data: {} });
     await pause(180); assert.doesNotMatch(frame, /APPROVALS ·/); assert.match(frame, /unsent draft/);
     client.data.state.approvals.third = { ...client.data.state.approvals.second!, id: 'third', status: 'pending' };
     client.emit({ seq: 3, type: 'approval.requested', at: '', data: {} });
-    await pause(180); await press('\x0f'); await press('n');
-    assert.deepEqual(client.decisions, ['approval:approved', 'third:denied']);
+    await pause(180); assert.match(frame, /APPROVALS · 1/);
+    await press('\x1b'); assert.match(frame, /unsent draft/);
+    client.emit({ seq: 4, type: 'run.step', at: '', data: {} });
+    await pause(180); assert.doesNotMatch(frame, /APPROVALS ·/);
+    // Replace a request while the queue count stays the same: ID, not count, triggers the popup.
+    client.data.state.approvals.third!.status = 'cancelled';
+    client.data.state.approvals.fourth = { ...client.data.state.approvals.third!, id: 'fourth', status: 'pending' };
+    client.emit({ seq: 5, type: 'approval.requested', at: '', data: {} });
+    await pause(180); assert.match(frame, /APPROVALS · 1/); await press('n');
+    assert.deepEqual(client.decisions, ['approval:approved', 'fourth:denied']);
     assert.doesNotMatch(frame, /APPROVALS ·/); assert.match(frame, /unsent draft/);
   } finally { app.unmount(); app.cleanup(); input.destroy(); output.destroy(); }
 });

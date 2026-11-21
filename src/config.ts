@@ -3,12 +3,14 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { atomicJSON } from './files.js';
+import { approvalModes } from './domain.js';
 import { defaultAgents } from './runtime.js';
 
 const settingsSchema = z.object({
   provider: z.enum(['demo', 'compatible']).default('demo'),
   baseUrl: z.string().url().optional(), model: z.string().optional(),
   defaultAgent: z.string().default('assistant'),
+  approvalMode: z.enum(approvalModes).default('manual'),
   credentials: z.object({ file: z.string(), provider: z.string() }).strict().optional(),
   thinking: z.enum(['enabled', 'disabled']).optional(), reasoningEffort: z.enum(['low', 'high', 'max']).optional(),
   maxOutputTokens: z.number().int().positive().optional(),
@@ -26,7 +28,7 @@ export function loadConfig(cwd = process.cwd(), env: NodeJS.ProcessEnv = process
   const read = (path: string) => existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as object : {};
   const projectFile = join(cwd, '.orchestrator', 'settings.json');
   const overrides = Object.fromEntries(Object.entries({
-    provider: env.ORCHESTRATOR_PROVIDER, baseUrl: env.LLM_BASE_URL, model: env.LLM_MODEL,
+    approvalMode: env.ORCHESTRATOR_APPROVAL_MODE, provider: env.ORCHESTRATOR_PROVIDER, baseUrl: env.LLM_BASE_URL, model: env.LLM_MODEL,
     host: env.ORCHESTRATOR_HOST, port: env.ORCHESTRATOR_PORT === undefined ? undefined : Number(env.ORCHESTRATOR_PORT)
   }).filter(([, value]) => value !== undefined));
   const settings = settingsSchema.parse({ ...read(globalFile), ...read(projectFile), ...overrides });

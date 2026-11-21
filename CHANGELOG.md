@@ -29,3 +29,9 @@
 - Role definitions, child sessions, dependencies, budgets, and tool approvals.
 - Demo and streaming Chat Completions providers.
 - Original SQLite persistence, cancellation, leaf retries, and recovery.
+
+### Approval modes
+
+- Add manual, agent-reviewed and allow-all approval modes with config, API and TUI switching.
+- Open pending approvals automatically and preserve drafts when returning to chat.
+- Record automatic decisions and fall back to manual when model review is unavailable.

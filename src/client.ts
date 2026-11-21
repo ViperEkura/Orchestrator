@@ -1,5 +1,5 @@
 import { readSSE, pause } from './transport.js';
-import type { Run, RuntimeEvent, Snapshot, SubmitInput, Task } from './domain.js';
+import type { ApprovalMode, Run, RuntimeEvent, Snapshot, SubmitInput, Task } from './domain.js';
 
 export class OrchestratorClient {
   constructor(readonly url: string, private token?: string) {}
@@ -12,7 +12,8 @@ export class OrchestratorClient {
     if (!response.ok) throw new Error((data as { error?: string }).error ?? `HTTP ${response.status}`);
     return data as T;
   }
-  info(): Promise<{ cwd: string; model: string; provider: string; defaultAgent: string }> { return this.request('/v1/info'); }
+  info(): Promise<{ cwd: string; model: string; provider: string; defaultAgent: string; approvalMode: ApprovalMode }> { return this.request('/v1/info'); }
+  setApprovalMode(mode: ApprovalMode): ReturnType<OrchestratorClient['info']> { return this.request('/v1/approval-mode', { mode }); }
   snapshot(): Promise<Snapshot> { return this.request('/v1/snapshot'); }
   submit(input: SubmitInput): Promise<Task> { return this.request('/v1/tasks', input); }
   cancel(taskId: string): Promise<{ ok: boolean }> { return this.request(`/v1/tasks/${encodeURIComponent(taskId)}/cancel`, {}); }

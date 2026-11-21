@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, render, useApp, useInput, useStdout } from 'ink';
-import type { Snapshot, Task } from './domain.js';
+import { approvalModes, type ApprovalMode, type Snapshot, type Task } from './domain.js';
 import { OrchestratorClient } from './client.js';
 import { completeInput } from './completions.js';
 import { anchorAt, historyTop, clean, conversations, short, statusColor, transcript, views, wrap, type HistoryAnchor, type Line, type View } from './tui-view.js';
@@ -40,6 +40,7 @@ export function App({ client }: { client: OrchestratorClient }) {
       setInfo(details);
       setSnapshot(initial); setNotice('Ready');
       for await (const event of client.events(initial.lastSeq, controller.signal)) {
+        if (event.type === 'approval.mode_changed') setInfo(await client.info());
         if (event.runId && event.type === 'message.thinking') {
           const id = event.runId; setThinking(current => current[id] ? current : { ...current, [id]: true }); continue;
         }
@@ -61,13 +62,19 @@ export function App({ client }: { client: OrchestratorClient }) {
   const focus = selected ? state?.tasks[selected] : undefined;
   const tasks = Object.values(state?.tasks ?? {}).filter(task => focus && task.rootId === focus.rootId);
   const approvals = Object.values(state?.approvals ?? {}).filter(approval => approval.status === 'pending');
+  const seenApprovals = useRef(new Set<string>());
   const previousPending = useRef(0);
   useEffect(() => {
-    if (view === 'Approvals' && previousPending.current > 0 && approvals.length === 0) {
+    if (busy) return;
+    const fresh = approvals.findIndex(approval => !seenApprovals.current.has(approval.id));
+    for (const approval of approvals) seenApprovals.current.add(approval.id);
+    if (fresh >= 0 && view !== 'Approvals') {
+      setView('Approvals'); setIndex(fresh); setOffset(0); setFilter(''); setDismissed(true);
+    } else if (view === 'Approvals' && previousPending.current > 0 && approvals.length === 0) {
       setView('Chat'); setIndex(0); setOffset(0); setFilter(''); setDismissed(true);
     }
     previousPending.current = approvals.length;
-  }, [view, approvals.length]);
+  }, [view, snapshot, busy]);
   const allTurns = Object.values(state?.tasks ?? {}).filter(task => task.sessionId === sessionId);
   const turns = allTurns.filter(task => task.objective.toLowerCase().includes(filter.toLowerCase()));
   const list = view === 'History' ? turns : view === 'Sessions' ? sessions : view === 'Agents' ? tasks : approvals;
@@ -94,6 +101,11 @@ export function App({ client }: { client: OrchestratorClient }) {
       if (navigation[command!]) switchView(navigation[command!]!);
       else if (command === '/help') { setInput('/'); setCompletionIndex(0); setDismissed(false); }
       else if (command === '/new') newChat();
+      else if (command === '/approval') {
+        if (!approvalModes.includes(argument as ApprovalMode)) throw new Error('Usage: /approval manual|agent|all');
+        setInfo(await client.setApprovalMode(argument as ApprovalMode));
+        setNotice('Approval: ' + argument + ' · applies to new requests');
+      }
       else if (command === '/team' || command === '/delegate') {
         const request = /^\/(?:team|delegate)\s+(\S+)\s+([\s\S]+)$/.exec(line);
         if (!request) throw new Error(command === '/team' ? 'Usage: /team agent1,agent2 task' : 'Usage: /delegate agent-id task');
@@ -146,6 +158,7 @@ export function App({ client }: { client: OrchestratorClient }) {
   const approvalLines: Line[] = approval ? [
     { text: `${approval.toolName} · task ${short(approval.taskId)}`, color: 'yellow', bold: true },
     ...wrap(`Workspace: ${state?.sessions[state.tasks[approval.taskId]!.sessionId]?.cwd ?? ''}`, contentWidth).map(text => ({ text, color: 'gray' })),
+    ...wrap(approval.reason ?? 'Manual approval required', contentWidth).map(text => ({ text, color: 'gray' })),
     ...wrap(JSON.stringify(approval.arguments, null, 2), contentWidth).map(text => ({ text })),
     { text: 'Y approve this call · N deny', color: 'yellow' }
   ] : [];
@@ -256,7 +269,7 @@ export function App({ client }: { client: OrchestratorClient }) {
   const isThinking = focus?.runIds.some(id => thinking[id]);
   return <Box flexDirection="column" width={size.columns} height={size.rows - 1}>
     <Box height={3} flexDirection="column" paddingX={1}>
-      <Text><Text bold color="cyan">ORCHESTRATOR</Text><Text dimColor>  v0.1  ·  {model}</Text></Text>
+      <Text><Text bold color="cyan">ORCHESTRATOR</Text><Text dimColor>  v0.1  ·  {model}  ·  Approval: {info?.approvalMode ?? 'manual'}</Text></Text>
       <Text dimColor wrap="truncate-middle">{clean(sessionId ? state?.sessions[sessionId]?.cwd ?? info?.cwd ?? '' : info?.cwd ?? 'Local workspace')}</Text>
       <Text> </Text>
     </Box>

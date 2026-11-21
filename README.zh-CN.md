@@ -103,3 +103,5 @@ npm.cmd start -- migrate C:\Develop\Orchestrator\.orchestrator\state.sqlite --ou
 详细说明：[界面快捷键](docs/TUI.md)、[子 Agent 与团队 API](docs/COLLABORATION.md)。
 
 本轮界面修正：启动时显示新会话帮助，不自动展开旧 Demo；模型回复支持 Markdown 加粗、标题、列表、代码块和表格，窄窗口自动换行或按字段展示。最后一条审批处理完成会自动回到聊天并保留草稿；空审批面板可按 Enter/Esc 返回。
+
+审批默认使用 **manual（手动）**，需要审批时自动弹出。使用 `/approval manual`、`/approval agent`、`/approval all` 切换运行中的模式；在 settings.json 中设置 `approvalMode` 可保存启动默认值。Agent 判定不确定或失败时转人工，所有模式均保留工具权限和路径检查。

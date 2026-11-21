@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { terminal, type AgentDefinition, type DelegationInput, type Message, type ModelProvider, type Run, type State, type SubmitInput, type Task, type ToolCall } from './domain.js';
+import { terminal, approvalModes, type ApprovalMode, type AgentDefinition, type DelegationInput, type Message, type ModelProvider, type Run, type State, type SubmitInput, type Task, type ToolCall } from './domain.js';
+import { judgeApproval } from './approval.js';
 import { StateStore } from './store.js';
 import { createTools, type ToolRegistry } from './tools.js';
 import { prepareWorkspace, projectDirectory } from './workspace.js';
@@ -32,7 +33,7 @@ export class Semaphore {
 }
 
 export interface RuntimeOptions {
-  workspaceDir: string; defaultAgent?: string; model?: string; provider?: string; concurrency?: number; maxSteps?: number; maxTasks?: number;
+  approvalMode?: ApprovalMode; workspaceDir: string; defaultAgent?: string; model?: string; provider?: string; concurrency?: number; maxSteps?: number; maxTasks?: number;
   maxDepth?: number; runTimeoutMs?: number; agents?: AgentDefinition[]; tools?: ToolRegistry;
 }
 
@@ -61,7 +62,13 @@ export class OrchestratorService {
       for (const approval of Object.values(s.approvals)) if (approval.status === 'pending') approval.status = 'cancelled';
     });
   }
-  info() { return { cwd: this.options.workspaceDir, model: this.options.model ?? 'custom', provider: this.options.provider ?? 'custom', defaultAgent: this.options.defaultAgent ?? 'assistant' }; }
+  info() { return { cwd: this.options.workspaceDir, model: this.options.model ?? 'custom', provider: this.options.provider ?? 'custom', defaultAgent: this.options.defaultAgent ?? 'assistant', approvalMode: this.options.approvalMode ?? 'manual' }; }
+  setApprovalMode(mode: ApprovalMode) {
+    if (!approvalModes.includes(mode)) throw new Error('Invalid approval mode');
+    this.options.approvalMode = mode;
+    this.store.change('approval.mode_changed', { mode }, () => {});
+    return this.info();
+  }
   submit(input: SubmitInput): Task {
     if (this.closing) throw new Error('Runtime is shutting down');
     if (!input.objective.trim() || input.objective.length > 16000) throw new Error('Objective must contain 1–16000 characters');
@@ -300,14 +307,40 @@ export class OrchestratorService {
     const tool = this.tools.resolve(call.name); const args: unknown = tool.schema.parse(JSON.parse(call.arguments));
     this.store.change('tool.started', { toolCallId: call.id, name: call.name, arguments: args }, () => {}, { taskId, runId });
     if (tool.approval) {
-      const id = randomUUID();
-      this.store.change('approval.requested', { approvalId: id, toolName: call.name, arguments: args }, s => {
-        s.approvals[id] = { id, taskId, runId, toolCallId: call.id, toolName: call.name, arguments: args, status: 'pending', createdAt: new Date().toISOString() };
-        s.tasks[taskId]!.status = 'waiting_approval'; s.runs[runId]!.status = 'waiting_approval';
+      const id = randomUUID(); const mode = this.info().approvalMode;
+      let decision: { status: 'pending' | 'approved' | 'denied'; reason: string } = {
+        status: mode === 'all' ? 'approved' : 'pending', reason: mode === 'all' ? 'Allow all mode' : 'Manual approval required'
+      };
+      if (mode === 'agent') {
+        const reviewSignal = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
+        let release: (() => void) | undefined;
+        try {
+          release = await this.models.acquire(reviewSignal);
+          const state = this.store.snapshot().state; const task = state.tasks[taskId]!;
+          this.store.change('approval.reviewing', { toolCallId: call.id }, s => {
+            const budget = s.budgets[task.rootId]!;
+            if (budget.stepsUsed >= budget.maxSteps) throw new Error('Model-step budget exhausted');
+            budget.stepsUsed++; s.runs[runId]!.steps++;
+          }, { taskId, runId });
+          decision = await judgeApproval(this.provider, {
+            userRequest: state.tasks[task.rootId]!.objective, agentObjective: task.objective,
+            workspace, tool: call.name, arguments: args
+          }, reviewSignal);
+        } catch {
+          signal.throwIfAborted();
+          decision = { status: 'pending', reason: 'Agent review unavailable; manual approval required' };
+        } finally { release?.(); }
+      }
+      signal.throwIfAborted();
+      this.store.change(decision.status === 'pending' ? 'approval.requested' : 'approval.resolved', { approvalId: id, mode, ...decision }, s => {
+        s.approvals[id] = { id, taskId, runId, toolCallId: call.id, toolName: call.name, arguments: args, mode, ...decision, createdAt: new Date().toISOString() };
+        if (decision.status === 'pending') { s.tasks[taskId]!.status = 'waiting_approval'; s.runs[runId]!.status = 'waiting_approval'; }
       }, { taskId, runId });
-      await this.waitFor(s => s.approvals[id]!.status !== 'pending', signal);
-      signal.throwIfAborted(); this.setStatus(taskId, 'running');
-      if (this.store.snapshot().state.approvals[id]!.status !== 'approved') throw new Error('User denied this exact tool call');
+      if (decision.status === 'pending') {
+        await this.waitFor(s => s.approvals[id]!.status !== 'pending', signal);
+        signal.throwIfAborted(); this.setStatus(taskId, 'running');
+      }
+      if (this.store.snapshot().state.approvals[id]!.status !== 'approved') throw new Error(decision.status === 'denied' ? 'Agent denied this tool call: ' + decision.reason : 'User denied this exact tool call');
     }
     const context = { workspace, signal,
       delegate: (input: DelegationInput) => ({ taskId: this.delegate(runId, input).id }),
