@@ -52,3 +52,5 @@
 
 - Add single-line thinking and tool argument previews to disclosure rows.
 - Collapse whitespace and truncate long previews to terminal display width.
+
+- Align disclosure names, statuses and previews in responsive terminal columns.

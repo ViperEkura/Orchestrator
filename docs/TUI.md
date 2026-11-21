@@ -41,3 +41,5 @@ Each newly pending request opens automatically, including after reconnecting. Y 
 Thinking streams live and is retained in completed assistant messages. Historical tool arguments/results use the existing message records; no duplicated history store is added. Expansion state belongs to the current TUI instance and defaults to collapsed on restart. Providers without reasoning text retain the normal activity indicator. Unfinished stream fragments are transient; large tool results still use the existing preview/artifact reference format.
 
 Disclosure rows include a single-line preview: the opening thinking text, a tool command/path, a delegated objective, or other arguments. Whitespace is collapsed and long previews end with an ellipsis according to terminal display width. Full contents remain available on expansion.
+
+Disclosure rows align name, status and preview into shared columns. Column padding uses terminal display width, including Chinese characters; narrower terminals shrink the columns and truncate each field separately.

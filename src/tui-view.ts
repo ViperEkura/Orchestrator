@@ -27,13 +27,13 @@ export function transcript(state: State | undefined, sessionId: string | undefin
       add(`${run.config.name.toUpperCase()} · ${run.status}${run.attempt > 1 ? ` · attempt ${run.attempt}` : ''}`, statusColor(run.status), true);
       // Match the actual user turn, excluding context copied from older turns.
       const start = run.messages.findLastIndex(message => message.role === 'user' && message.content === task.objective);
-      const disclosure = (id: string, label: string, body: () => string, color = 'gray') => {
-        lines.push({ text: singleLine((expanded.has(id) ? '▾ ' : '▸ ') + label, width), color, disclosureId: id });
+      const disclosure = (id: string, name: string, status: string, summary: string, body: () => string, color = 'gray') => {
+        lines.push({ text: disclosureRow(expanded.has(id), name, status, summary, width), color, disclosureId: id });
         if (expanded.has(id)) add(body(), 'gray');
       };
       for (let i = Math.max(0, start + 1); i < run.messages.length; i++) {
         const message = run.messages[i]!;
-        if (message.reasoningContent) disclosure(runId + ':thinking:' + i, 'Thinking · ' + message.reasoningContent, () => message.reasoningContent!);
+        if (message.reasoningContent) disclosure(runId + ':thinking:' + i, 'Thinking', 'completed', message.reasoningContent, () => message.reasoningContent!);
         if (message.role === 'assistant' && message.content) lines.push(...renderMarkdown(message.content, width).map(text => ({ text })));
         for (const call of message.toolCalls ?? []) {
           const result = run.messages.slice(i + 1).find(m => m.role === 'tool' && m.toolCallId === call.id);
@@ -41,12 +41,12 @@ export function transcript(state: State | undefined, sessionId: string | undefin
           const outcome = parseJSON(result?.content ?? 'null');
           const failed = outcome && typeof outcome === 'object' && ('error' in outcome || ('exitCode' in outcome && outcome.exitCode !== 0));
           const status = approval?.status === 'denied' ? 'denied' : result ? failed ? 'failed' : 'completed' : approval?.status === 'pending' ? 'waiting approval' : ['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status) ? 'not executed' : 'pending';
-          disclosure(runId + ':tool:' + i + ':' + call.id, call.name + ' · ' + status + ' · ' + toolSummary(call.name, call.arguments),
+          disclosure(runId + ':tool:' + i + ':' + call.id, call.name, status, toolSummary(call.name, call.arguments),
             () => 'Arguments\n' + prettyJSON(call.arguments) + '\n\nResult\n' + (result ? prettyJSON(result.content) : 'No result yet.'),
             status === 'failed' || status === 'denied' ? 'red' : 'gray');
         }
       }
-      if (reasoning[runId]) disclosure(runId + ':thinking:' + run.messages.length, 'Thinking… · ' + reasoning[runId], () => reasoning[runId]!);
+      if (reasoning[runId]) disclosure(runId + ':thinking:' + run.messages.length, 'Thinking', 'streaming', reasoning[runId]!, () => reasoning[runId]!);
       if (streaming[runId]) lines.push(...renderMarkdown(streaming[runId]!, width, false).map(text => ({ text })));
       add('');
     }
@@ -112,4 +112,15 @@ function toolSummary(name: string, argumentsText: string): string {
   if ('taskIds' in args && Array.isArray(args.taskIds)) return 'Wait for ' + args.taskIds.length + ' task(s)';
   if (name === 'list_files') return 'List workspace files';
   return Object.keys(args).length ? JSON.stringify(args) : 'No arguments';
+}
+
+function disclosureRow(open: boolean, name: string, status: string, summary: string, width: number): string {
+  const nameWidth = Math.min(16, Math.max(8, Math.floor(width * 0.25)));
+  const statusWidth = Math.min(16, Math.max(7, Math.floor(width * 0.23)));
+  const column = (text: string, size: number) => {
+    const value = singleLine(text, size);
+    return value + ' '.repeat(Math.max(0, size - stringWidth(value)));
+  };
+  const prefix = (open ? '▾ ' : '▸ ') + column(name, nameWidth) + '  ' + column(status, statusWidth) + '  ';
+  return prefix + singleLine(summary, Math.max(1, width - stringWidth(prefix)));
 }
