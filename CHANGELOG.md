@@ -56,3 +56,5 @@
 - Align disclosure names, statuses and previews in responsive terminal columns.
 
 - Remove the disclosure status column; use color and show explicit status only inside expanded details.
+
+- Keep all disclosure rows gray except failed or denied tool calls, which use red.

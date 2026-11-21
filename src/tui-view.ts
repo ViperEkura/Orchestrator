@@ -43,7 +43,7 @@ export function transcript(state: State | undefined, sessionId: string | undefin
           const status = approval?.status === 'denied' ? 'denied' : result ? failed ? 'failed' : 'completed' : approval?.status === 'pending' ? 'waiting approval' : ['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status) ? 'not executed' : 'pending';
           disclosure(runId + ':tool:' + i + ':' + call.id, call.name, status, toolSummary(call.name, call.arguments),
             () => 'Arguments\n' + prettyJSON(call.arguments) + '\n\nResult\n' + (result ? prettyJSON(result.content) : 'No result yet.'),
-            status === 'completed' ? 'green' : status === 'failed' || status === 'denied' ? 'red' : status === 'not executed' ? 'gray' : 'yellow');
+            status === 'failed' || status === 'denied' ? 'red' : 'gray');
         }
       }
       if (reasoning[runId]) disclosure(runId + ':thinking:' + run.messages.length, 'Thinking', 'streaming', reasoning[runId]!, () => reasoning[runId]!);

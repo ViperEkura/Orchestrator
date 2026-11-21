@@ -230,7 +230,7 @@ test('thinking and tools are collapsed by default, preserve ordering and survive
   assert.equal(collapsed.find(l => l.disclosureId?.includes(':tool:'))?.color, 'red');
   assert.equal(collapsed.find(l => l.disclosureId?.includes(':thinking:'))?.color, 'gray');
   state.runs.one!.messages[2]!.content = '{"exitCode":0}';
-  assert.equal(transcript(state, 'one', {}, 70).find(l => l.disclosureId?.includes(':tool:'))?.color, 'green');
+  assert.equal(transcript(state, 'one', {}, 70).find(l => l.disclosureId?.includes(':tool:'))?.color, 'gray');
   state.runs.one!.messages = detailMessages();
   state.runs.one!.messages[1]!.reasoningContent = '中文摘要\n\t' + '详细内容'.repeat(30);
   const narrow = transcript(state, 'one', {}, 32).find(l => l.disclosureId)!;
