@@ -58,3 +58,16 @@
 - Remove the disclosure status column; use color and show explicit status only inside expanded details.
 
 - Keep all disclosure rows gray except failed or denied tool calls, which use red.
+
+### Source organization
+
+- Group source files by core, storage, models, tools, transport and TUI.
+- Update relative imports and the client package export; preserve CLI commands.
+
+### Coding tools and user interaction
+
+- Add bundled-ripgrep search, glob, recursive listing, paged reads and exact text edits.
+- Batch independent read-only calls with bounded concurrency and stable result ordering.
+- Preserve large outputs as artifacts and expose scoped paged reads.
+- Add durable user questions, API/SDK answers and automatic TUI question cards.
+- Add persisted task plans and separators between Markdown table rows.

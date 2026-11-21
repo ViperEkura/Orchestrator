@@ -1,10 +1,10 @@
 import wrapAnsi from 'wrap-ansi';
 import stringWidth from 'string-width';
 import { renderMarkdown } from './markdown.js';
-import type { Approval, State, Task } from './domain.js';
+import type { Approval, State, Task } from '../core/domain.js';
 
-export type View = 'Chat' | 'History' | 'Sessions' | 'Agents' | 'Approvals';
-export const views: View[] = ['Chat', 'History', 'Sessions', 'Agents', 'Approvals'];
+export type View = 'Chat' | 'History' | 'Sessions' | 'Agents' | 'Approvals' | 'Questions';
+export const views: View[] = ['Chat', 'History', 'Sessions', 'Agents', 'Approvals', 'Questions'];
 export type Line = { text: string; color?: string; bold?: boolean; selected?: boolean; turnId?: string; turnLine?: number; disclosureId?: string };
 export const clean = (text: string) => text.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
 export const short = (id: string) => id.slice(0, 8);
@@ -39,7 +39,7 @@ export function transcript(state: State | undefined, sessionId: string | undefin
           const result = run.messages.slice(i + 1).find(m => m.role === 'tool' && m.toolCallId === call.id);
           const approval = Object.values(state.approvals).find(a => a.runId === runId && a.toolCallId === call.id);
           const outcome = parseJSON(result?.content ?? 'null');
-          const failed = outcome && typeof outcome === 'object' && ('error' in outcome || ('exitCode' in outcome && outcome.exitCode !== 0));
+          const failed = outcome && typeof outcome === 'object' && ('error' in outcome || ('exitCode' in outcome && outcome.exitCode !== 0) || ('timedOut' in outcome && outcome.timedOut === true) || ('outputLimitReached' in outcome && outcome.outputLimitReached === true));
           const status = approval?.status === 'denied' ? 'denied' : result ? failed ? 'failed' : 'completed' : approval?.status === 'pending' ? 'waiting approval' : ['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status) ? 'not executed' : 'pending';
           disclosure(runId + ':tool:' + i + ':' + call.id, call.name, status, toolSummary(call.name, call.arguments),
             () => 'Arguments\n' + prettyJSON(call.arguments) + '\n\nResult\n' + (result ? prettyJSON(result.content) : 'No result yet.'),
@@ -49,6 +49,11 @@ export function transcript(state: State | undefined, sessionId: string | undefin
       if (reasoning[runId]) disclosure(runId + ':thinking:' + run.messages.length, 'Thinking', 'streaming', reasoning[runId]!, () => reasoning[runId]!);
       if (streaming[runId]) lines.push(...renderMarkdown(streaming[runId]!, width, false).map(text => ({ text })));
       add('');
+    }
+    if (task.todos?.length) {
+      const id = task.id + ':plan'; const done = task.todos.filter(item => item.status === 'completed').length;
+      lines.push({ text: disclosureRow(expanded.has(id), 'Plan', done + '/' + task.todos.length + ' completed', width), color: 'gray', disclosureId: id });
+      if (expanded.has(id)) for (const item of task.todos) add((item.status === 'completed' ? '[x] ' : item.status === 'in_progress' ? '[>] ' : '[ ] ') + item.text, 'gray');
     }
     if (task.error) add(task.error, 'red');
     for (let i = turnStart; i < lines.length; i++) { lines[i]!.turnId = task.id; lines[i]!.turnLine = i - turnStart; }
@@ -87,7 +92,13 @@ export function approvalPreview(approval: Approval | undefined, state: State | u
     add(JSON.stringify(approval.arguments, null, 2));
   } else if (command) add(args.command as string);
   else if (write) { add(args.path as string, 'cyan'); add(args.content as string); }
-  else add(JSON.stringify(approval.arguments, null, 2));
+  else if (approval.toolName === 'apply_patch' && Array.isArray(args.edits)) {
+    add(String(args.path), 'cyan');
+    for (const edit of args.edits as { oldText: string; newText: string }[]) {
+      add('---'); add(edit.oldText.split('\n').map(line => '- ' + line).join('\n'), 'red');
+      add(edit.newText.split('\n').map(line => '+ ' + line).join('\n'), 'green');
+    }
+  } else add(JSON.stringify(approval.arguments, null, 2));
   return { title, lines };
 }
 
@@ -105,7 +116,7 @@ function toolSummary(name: string, argumentsText: string): string {
   const args = parseJSON(argumentsText);
   if (!args || typeof args !== 'object') return argumentsText;
   if ('objective' in args && typeof args.objective === 'string') return ('agentId' in args ? String(args.agentId) + ': ' : '') + args.objective;
-  for (const field of ['command', 'path', 'query', 'url']) {
+  for (const field of ['command', 'path', 'pattern', 'query', 'url', 'question']) {
     const value = (args as Record<string, unknown>)[field];
     if (typeof value === 'string' && value.trim()) return value;
   }

@@ -4,12 +4,12 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, write
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { StateStore } from '../src/store.js';
-import { loadConfig } from '../src/config.js';
-import { atomicJSON } from '../src/files.js';
-import { defaultAgents, OrchestratorService } from '../src/runtime.js';
-import { DemoProvider } from '../src/models.js';
-import { migrateLegacy } from '../src/migrate.js';
+import { StateStore } from '../src/storage/store.js';
+import { loadConfig } from '../src/core/config.js';
+import { atomicJSON } from '../src/storage/files.js';
+import { defaultAgents, OrchestratorService } from '../src/core/runtime.js';
+import { DemoProvider } from '../src/models/providers.js';
+import { migrateLegacy } from '../src/storage/migrate.js';
 
 function files(dir: string): string[] { return readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(join(dir, e.name)) : [join(dir, e.name)]); }
 async function temp() { return mkdtemp(join(tmpdir(), 'orchestrator-storage-')); }

@@ -62,3 +62,7 @@ try {
 ```
 
 The store takes a data directory, not a SQLite filename. `:memory:` is suitable for tests but does not write artifact bodies to disk. Keep JSON values lossless and serializable. Use the API client for multiple interfaces instead of opening the same directory from multiple runtimes.
+
+Set `parallelSafe: true` in addition to `readOnly: true` for independent observational tools. Consecutive eligible calls run together under the shared execution limit; mutations, coordination, approvals and questions form sequential barriers. Results enter model context in the original call order, including errors. Tools without the explicit flag remain serial. See [built-in tools](TOOLS.md).
+
+Pristine built-in agent JSON files from the previous tool set upgrade automatically. Customized prompts, names or allowlists are preserved; add desired tools explicitly in customized roles.

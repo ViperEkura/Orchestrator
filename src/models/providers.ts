@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { Message, ModelChunk, ModelProvider, ToolCall, ToolSpec } from './domain.js';
-import { readSSE } from './transport.js';
-export { readSSE } from './transport.js';
+import type { Message, ModelChunk, ModelProvider, ToolCall, ToolSpec } from '../core/domain.js';
+import { readSSE } from '../transport/sse.js';
+export { readSSE } from '../transport/sse.js';
 
 /** Deterministic provider exercises real delegation, scheduling, tools and approvals. */
 export class DemoProvider implements ModelProvider {

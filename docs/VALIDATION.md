@@ -4,7 +4,7 @@ Validated on Windows with Node.js 24.14 and npm 11.12.
 
 ## Automated checks
 
-Type check and production build passed. All 54 tests passed, covering:
+Type check and production build passed. All 64 tests passed, covering:
 
 - Direct two-turn streaming, persisted messages, and retained provider reasoning metadata.
 - Structured sub-agent/team plans, API/SDK transport, sibling dependencies, concurrency permits, and shared budgets.
@@ -37,3 +37,7 @@ Approval-mode checks cover manual/agent/all execution, agent denial, uncertain/i
 Compact approval follow-up: production build and all six TUI tests passed, including raw command display, detail expansion, long-content paging, and a 50-column terminal. The runtime was unchanged.
 
 Collapsible history checks cover live reasoning payloads, exact snapshot restoration, default-collapsed records, tool errors, per-turn deduplication, live-to-persisted identity, actual mouse press/release coordinates, Ctrl+E, and composer draft preservation. All 54 tests and type checking passed.
+
+Source layout refactor: type checking, all 54 tests and production build passed. Compiled CLI help and the orchestrator / orchestrator/client package exports load successfully from their new paths.
+
+Coding-tool update: all 64 tests, type checking and production build passed. New integration checks cover bundled-ripgrep search/exclusions, Windows canonical paths, symlink rejection, paged large-file reads, CRLF-preserving exact edits, parallel reads with write barriers, ordered error results, question answers/cancellation/recovery/deadlines, task plans, cross-session artifact rejection, complete 40k-character command output, role upgrades and table row separators. Question-card choices, custom text, drafts and narrow-terminal paging are exercised through Ink input streams.

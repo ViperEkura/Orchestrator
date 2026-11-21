@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from '
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
-import { atomicJSON } from './files.js';
+import { atomicJSON } from '../storage/files.js';
 import { approvalModes } from './domain.js';
 import { defaultAgents } from './runtime.js';
 
@@ -34,6 +34,12 @@ export function loadConfig(cwd = process.cwd(), env: NodeJS.ProcessEnv = process
   const settings = settingsSchema.parse({ ...read(globalFile), ...read(projectFile), ...overrides });
   const agentsDir = join(home, 'agents'); mkdirSync(agentsDir, { recursive: true });
   for (const agent of defaultAgents) { const path = join(agentsDir, `${agent.id}.json`); if (!existsSync(path)) atomicJSON(path, agent); }
+  const added = new Set(['grep', 'glob', 'apply_patch', 'ask_user', 'todo_write', 'read_artifact']);
+  for (const builtin of defaultAgents) {
+    const path = join(agentsDir, builtin.id + '.json'); const current = agentSchema.parse(read(path));
+    const previous = builtin.allowedTools.filter(name => !added.has(name));
+    if (current.systemPrompt === builtin.systemPrompt && current.name === builtin.name && JSON.stringify(current.allowedTools) === JSON.stringify(previous)) atomicJSON(path, builtin);
+  }
   const agents = readdirSync(agentsDir).filter(name => name.endsWith('.json')).map(name => agentSchema.parse(read(join(agentsDir, name))));
   if (new Set(agents.map(agent => agent.id)).size !== agents.length) throw new Error('Duplicate agent IDs in agents/*.json');
   return { home, cwd, settings, agents };

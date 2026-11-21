@@ -4,11 +4,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
-import { StateStore } from '../src/store.js';
-import { OrchestratorService } from '../src/runtime.js';
-import { DemoProvider, CompatibleProvider, readSSE } from '../src/models.js';
-import { startServer } from '../src/server.js';
-import { OrchestratorClient } from '../src/client.js';
+import { StateStore } from '../src/storage/store.js';
+import { OrchestratorService } from '../src/core/runtime.js';
+import { DemoProvider, CompatibleProvider, readSSE } from '../src/models/providers.js';
+import { startServer } from '../src/transport/server.js';
+import { OrchestratorClient } from '../src/transport/client.js';
 
 test('HTTP SDK, bearer auth, origin checks and replayable SSE', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'orchestrator-api-'));

@@ -4,11 +4,11 @@ import React from 'react';
 import stringWidth from 'string-width';
 import { PassThrough, Writable } from 'node:stream';
 import { render } from 'ink';
-import { App } from '../src/tui.js';
-import { emptyState } from '../src/store.js';
-import { OrchestratorClient } from '../src/client.js';
-import { anchorAt, historyTop, conversations, transcript } from '../src/tui-view.js';
-import type { Snapshot, Task, RuntimeEvent, SubmitInput } from '../src/domain.js';
+import { App } from '../src/tui/app.js';
+import { emptyState } from '../src/storage/store.js';
+import { OrchestratorClient } from '../src/transport/client.js';
+import { anchorAt, historyTop, conversations, transcript } from '../src/tui/view.js';
+import type { Snapshot, Task, RuntimeEvent, SubmitInput } from '../src/core/domain.js';
 
 function fixture(): Snapshot {
   const state = emptyState();
@@ -35,6 +35,8 @@ test('conversation history shows each turn once and preserves long Unicode outpu
 });
 
 class FakeClient extends OrchestratorClient {
+  answers: { id: string; answer: string }[] = [];
+  override async answer(id: string, answer: string) { this.answers.push({ id, answer }); this.data.state.questions[id]!.status = 'answered'; this.data.state.questions[id]!.answer = answer; return { ok: true }; }
   data = fixture(); decisions: string[] = []; inputs: SubmitInput[] = [];
   private queued: RuntimeEvent[] = []; private wake?: () => void;
   emit(event: RuntimeEvent) { this.queued.push(event); this.wake?.(); }
@@ -281,4 +283,30 @@ test('click and Ctrl+E toggle records without submitting drafts or repeating too
     await pause(180); assert.equal(frame.split('Streaming reasoning').length - 1, 2);
     assert.match(frame, /draft kept/);
   } finally { app.unmount(); app.cleanup(); input.destroy(); output.destroy(); }
+});
+
+test('questions automatically open, accept choices or custom text and preserve the chat draft', async () => {
+  const client=new FakeClient(); client.data.state.approvals={};let frame='';
+  const output=Object.assign(new Writable({write(chunk,_encoding,done){const text=chunk.toString();if(text.includes('ORCHESTRATOR'))frame=text;done();}}),{columns:80,rows:26,isTTY:true});
+  const input=Object.assign(new PassThrough(),{isTTY:true,setRawMode(){},ref(){},unref(){}});
+  const app=render(React.createElement(App,{client}),{stdout:output as unknown as NodeJS.WriteStream,stdin:input as unknown as NodeJS.ReadStream,debug:true,patchConsole:false,exitOnCtrlC:false});
+  const press=async(key:string)=>{input.write(key);await pause();};
+  try {
+    await pause(160);await press('draft for chat');
+    client.data.state.questions.q={id:'q',taskId:'one',runId:'one',toolCallId:'ask',question:'Which output format?',options:['JSON','Text'],status:'pending',createdAt:''};
+    client.emit({seq:2,type:'question.requested',at:'',data:{}});await pause(180);
+    assert.match(frame,/Which output format/);assert.doesNotMatch(frame,/draft for chat/);
+    await press('\x1b');assert.match(frame,/draft for chat/);
+    await press('\x11');assert.match(frame,/Which output format/);
+    await press('CSV');await press('\r');assert.deepEqual(client.answers,[{id:'q',answer:'CSV'}]);assert.match(frame,/draft for chat/);
+    client.data.state.questions.next={...client.data.state.questions.q!,id:'next',status:'pending'};
+    client.emit({seq:3,type:'question.requested',at:'',data:{}});await pause(180);
+    await press('\x1b[B');await press('\r');assert.deepEqual(client.answers[1],{id:'next',answer:'Text'});assert.match(frame,/draft for chat/);
+    client.data.state.questions.last={...client.data.state.questions.q!,id:'last',status:'pending',question:'A question '.repeat(50)};
+    client.emit({seq:4,type:'question.requested',at:'',data:{}});await pause(180);
+    output.columns=50;output.rows=18;output.emit('resize');await pause();await press('\x1b[6~');
+    const plain=frame.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'').trimEnd();assert.ok(plain.split('\n').length<=17);
+    client.data.state.questions.last!.status='cancelled';client.emit({seq:5,type:'run.cancelled',at:'',data:{}});await pause(180);assert.match(frame,/draft for chat/);
+    assert.equal(client.inputs.length,0);assert.equal(client.decisions.length,0);
+  } finally {app.unmount();app.cleanup();input.destroy();output.destroy();}
 });

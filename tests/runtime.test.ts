@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { StateStore } from '../src/store.js';
-import { OrchestratorService, Semaphore } from '../src/runtime.js';
-import { DemoProvider } from '../src/models.js';
-import type { ModelProvider } from '../src/domain.js';
-import { safePath, runCommand } from '../src/tools.js';
+import { StateStore } from '../src/storage/store.js';
+import { OrchestratorService, Semaphore } from '../src/core/runtime.js';
+import { DemoProvider } from '../src/models/providers.js';
+import type { ModelProvider } from '../src/core/domain.js';
+import { safePath, runCommand } from '../src/tools/index.js';
 
 async function fixture(provider: ModelProvider = new DemoProvider(), options: Partial<ConstructorParameters<typeof OrchestratorService>[2]> = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'orchestrator-test-'));

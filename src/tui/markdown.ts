@@ -55,7 +55,7 @@ function table(token: Tokens.Table, width: number): string[] {
       });
       output.push(style.gray('│ ') + padded.join(style.gray(' │ ')) + style.gray(' │'));
     }
-    if (rowIndex === 0) output.push(border('├', '┼', '┤'));
+    if (rowIndex < rows.length - 1) output.push(border('├', '┼', '┤'));
   });
   output.push(border('└', '┴', '┘')); return output;
 }

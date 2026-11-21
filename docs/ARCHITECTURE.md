@@ -96,3 +96,19 @@ Migration reads SQLite without updating its database, writes a new staging direc
 Single user and process, no encryption, compaction, independent session deletion, or distributed locking. The API exposes all sessions to authenticated clients. File tools check workspace paths; approved shell commands retain host permissions. Worktrees isolate ordinary project edits, not operating-system privileges.
 
 Direct conversation defaults to Assistant. Explicit delegation plans are stored with the parent Task and expanded by the runtime before synthesis. Plan dependencies reference earlier entries by index. See [collaboration](COLLABORATION.md) and [TUI interaction design](TUI.md).
+
+## Source layout
+
+```text
+src/
+  main.ts              CLI entry
+  index.ts             Public package exports
+  core/                Domain, runtime, approvals, config, workspaces
+  storage/             JSONL store, atomic files, legacy migration
+  models/              Demo and compatible model providers
+  tools/               Tool registry and built-in tools
+  transport/           HTTP server, client SDK, shared SSE parser
+  tui/                 App, transcript, Markdown, completion, questions
+```
+
+The CLI remains `src/main.ts`; public exports remain in `src/index.ts`. The `orchestrator/client` package export resolves to `transport/client`. Tests stay in `tests/` and import the relevant modules directly.

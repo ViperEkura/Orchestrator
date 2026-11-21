@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { StateStore } from '../src/store.js';
-import { OrchestratorService } from '../src/runtime.js';
-import { resolveApiKey } from '../src/config.js';
-import type { Message, ModelProvider, ToolSpec } from '../src/domain.js';
+import { StateStore } from '../src/storage/store.js';
+import { OrchestratorService } from '../src/core/runtime.js';
+import { resolveApiKey } from '../src/core/config.js';
+import type { Message, ModelProvider, ToolSpec } from '../src/core/domain.js';
 
 test('default agent streams a direct two-turn conversation and retains reasoning context', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'orchestrator-chat-'));

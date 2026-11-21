@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import { approvalModes } from './domain.js';
-import type { OrchestratorService } from './runtime.js';
+import { approvalModes } from '../core/domain.js';
+import type { OrchestratorService } from '../core/runtime.js';
 
 const delegationSchema = z.object({ agentId: z.string(), objective: z.string().trim().min(1).max(16000), workspace: z.enum(['read-only', 'worktree']).optional(), after: z.array(z.number().int().nonnegative()).max(16).optional() }).strict();
 const submitSchema = z.object({ delegations: z.array(delegationSchema).min(1).max(16).optional(), objective: z.string().trim().min(1).max(16000), agentId: z.string().optional(), sessionId: z.string().uuid().optional() }).strict();
@@ -61,6 +61,8 @@ export async function startServer(runtime: OrchestratorService, options: { host?
         else send(res, 201, runtime.retry(action[1]!));
         return;
       }
+      const question = /^\/v1\/questions\/([^/]+)$/.exec(url.pathname);
+      if (question) { runtime.answerQuestion(question[1]!, z.object({ answer: z.string().trim().min(1).max(16000) }).strict().parse(body).answer); send(res, 200, { ok: true }); return; }
       const approval = /^\/v1\/approvals\/([^/]+)$/.exec(url.pathname);
       if (approval) { runtime.resolveApproval(approval[1]!, decisionSchema.parse(body).decision); send(res, 200, { ok: true }); return; }
     }

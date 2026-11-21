@@ -105,3 +105,9 @@ npm.cmd start -- migrate C:\Develop\Orchestrator\.orchestrator\state.sqlite --ou
 本轮界面修正：启动时显示新会话帮助，不自动展开旧 Demo；模型回复支持 Markdown 加粗、标题、列表、代码块和表格，窄窗口自动换行或按字段展示。最后一条审批处理完成会自动回到聊天并保留草稿；空审批面板可按 Enter/Esc 返回。
 
 审批默认使用 **manual（手动）**，需要审批时自动弹出。使用 `/approval manual`、`/approval agent`、`/approval all` 切换运行中的模式；在 settings.json 中设置 `approvalMode` 可保存启动默认值。Agent 判定不确定或失败时转人工，所有模式均保留工具权限和路径检查。
+
+## 源码目录
+
+`src/core` 放领域类型和运行时；`storage` 放持久化；`models` 放模型适配；`tools` 放工具；`transport` 放 HTTP、SDK 和 SSE；`tui` 放终端界面。根目录保留 `main.ts` 与 `index.ts`，启动命令不变。
+
+已加入 `grep`、`glob`、多层目录列表、分页读取、局部编辑、长输出回读、`ask_user` 和 `todo_write`。只读查询支持受限并发，写入按顺序执行；问题自动弹出，表格按逻辑行分隔。参数与限制见 [工具文档](docs/TOOLS.md)。ripgrep 随 npm 依赖安装，无需全局安装。

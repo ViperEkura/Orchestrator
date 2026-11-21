@@ -151,3 +151,21 @@ The local installation is configured for DeepSeek V4.1 Flash with high thinking 
 The referenced entry must contain `{ "type": "api", "key": "..." }`. Orchestrator reads the key at startup without copying it into settings or logs. `LLM_API_KEY` takes precedence. Provider reasoning metadata is retained and sent back when continuing tool-enabled conversations, as required by [DeepSeek's thinking protocol](https://api-docs.deepseek.com/guides/thinking_mode/).
 
 Approval defaults to **manual** and pending requests open automatically. Use `/approval manual`, `/approval agent`, or `/approval all` to switch the running server; set `approvalMode` in settings.json for the startup default. See [approval behavior](docs/TUI.md#approval-modes-and-automatic-prompts).
+
+## Source layout
+
+```text
+src/
+  main.ts              CLI entry
+  index.ts             Public package exports
+  core/                Domain, runtime, approvals, config, workspaces
+  storage/             JSONL store, atomic files, legacy migration
+  models/              Demo and compatible model providers
+  tools/               Tool registry and built-in tools
+  transport/           HTTP server, client SDK, shared SSE parser
+  tui/                 App, transcript, Markdown, completion, questions
+```
+
+The CLI remains `src/main.ts`; public exports remain in `src/index.ts`. The `orchestrator/client` package export resolves to `transport/client`. Tests stay in `tests/` and import the relevant modules directly.
+
+Built-in `grep`, `glob`, recursive listing, paged reads, exact edits, recoverable tool outputs, user questions and task plans are available. Read [tool arguments and limits](docs/TOOLS.md). Ripgrep is installed with npm dependencies; no global `rg` command is required.

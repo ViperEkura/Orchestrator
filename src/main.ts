@@ -1,13 +1,13 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve, join } from 'node:path';
-import { StateStore } from './store.js';
-import { CompatibleProvider, DemoProvider } from './models.js';
-import { OrchestratorService } from './runtime.js';
-import { OrchestratorClient } from './client.js';
-import { startServer } from './server.js';
-import { startTui } from './tui.js';
-import { loadConfig, resolveApiKey } from './config.js';
+import { StateStore } from './storage/store.js';
+import { CompatibleProvider, DemoProvider } from './models/providers.js';
+import { OrchestratorService } from './core/runtime.js';
+import { OrchestratorClient } from './transport/client.js';
+import { startServer } from './transport/server.js';
+import { startTui } from './tui/app.js';
+import { loadConfig, resolveApiKey } from './core/config.js';
 
 async function main() {
   const args = process.argv.slice(2); const command = args.shift();
@@ -20,7 +20,7 @@ async function main() {
   if (command === 'migrate') {
     const output = resolve(option('--output') ?? home); const source = args[0];
     if (!source) throw new Error('Usage: migrate <sqlite-file> [--output new-directory]');
-    const { migrateLegacy } = await import('./migrate.js'); console.log(await migrateLegacy(source, output)); return;
+    const { migrateLegacy } = await import('./storage/migrate.js'); console.log(await migrateLegacy(source, output)); return;
   }
   if (!['init', 'server', 'tui', 'demo'].includes(command)) throw new Error(`Unknown command: ${command}`);
   const url = option('--url');
@@ -28,7 +28,7 @@ async function main() {
   if (command === 'tui' && !process.stdin.isTTY) throw new Error('TUI requires a terminal; use npm run demo');
   const legacy = join(cwd, '.orchestrator', 'state.sqlite');
   if (!existsSync(home) && existsSync(legacy)) {
-    const { migrateLegacy } = await import('./migrate.js');
+    const { migrateLegacy } = await import('./storage/migrate.js');
     console.log('Importing legacy history; the SQLite source and project files will remain unchanged.');
     console.log(await migrateLegacy(legacy, home));
   }

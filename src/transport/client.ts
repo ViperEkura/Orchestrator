@@ -1,5 +1,5 @@
-import { readSSE, pause } from './transport.js';
-import type { ApprovalMode, Run, RuntimeEvent, Snapshot, SubmitInput, Task } from './domain.js';
+import { readSSE, pause } from './sse.js';
+import type { ApprovalMode, Run, RuntimeEvent, Snapshot, SubmitInput, Task } from '../core/domain.js';
 
 export class OrchestratorClient {
   constructor(readonly url: string, private token?: string) {}
@@ -18,6 +18,7 @@ export class OrchestratorClient {
   submit(input: SubmitInput): Promise<Task> { return this.request('/v1/tasks', input); }
   cancel(taskId: string): Promise<{ ok: boolean }> { return this.request(`/v1/tasks/${encodeURIComponent(taskId)}/cancel`, {}); }
   retry(taskId: string): Promise<Run> { return this.request(`/v1/tasks/${encodeURIComponent(taskId)}/retry`, {}); }
+  answer(id: string, answer: string): Promise<{ ok: boolean }> { return this.request('/v1/questions/' + encodeURIComponent(id), { answer }); }
   approve(id: string, decision: 'approved' | 'denied'): Promise<{ ok: boolean }> { return this.request(`/v1/approvals/${encodeURIComponent(id)}`, { decision }); }
   async *events(after: number, signal: AbortSignal): AsyncGenerator<RuntimeEvent, void, unknown> {
     let cursor = after;

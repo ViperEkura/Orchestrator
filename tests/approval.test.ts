@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as pause } from 'node:timers/promises';
 import { z } from 'zod';
-import { OrchestratorService } from '../src/runtime.js';
-import { StateStore } from '../src/store.js';
-import { ToolRegistry } from '../src/tools.js';
-import { completeInput } from '../src/completions.js';
-import type { ApprovalMode, ModelProvider } from '../src/domain.js';
+import { OrchestratorService } from '../src/core/runtime.js';
+import { StateStore } from '../src/storage/store.js';
+import { ToolRegistry } from '../src/tools/index.js';
+import { completeInput } from '../src/tui/completions.js';
+import type { ApprovalMode, ModelProvider } from '../src/core/domain.js';
 
 async function until(predicate: () => boolean) {
   for (let n = 0; n < 200; n++) { if (predicate()) return; await pause(10); }

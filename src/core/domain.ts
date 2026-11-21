@@ -1,4 +1,4 @@
-export type Status = 'queued' | 'running' | 'waiting_approval' | 'waiting_children' | 'cancelling' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+export type Status = 'queued' | 'running' | 'waiting_approval' | 'waiting_user' | 'waiting_children' | 'cancelling' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
 export const terminal = (status: Status) => ['completed', 'failed', 'cancelled', 'interrupted'].includes(status);
 export interface AgentDefinition {
   id: string; name: string; systemPrompt: string; allowedTools: string[];
@@ -14,7 +14,11 @@ export interface Message {
   role: 'system' | 'user' | 'assistant' | 'tool'; content: string;
   reasoningContent?: string; toolCalls?: ToolCall[]; toolCallId?: string;
 }
+export interface TodoItem { text: string; status: 'pending' | 'in_progress' | 'completed' }
+export interface QuestionInput { question: string; options?: string[] }
+export interface UserQuestion extends QuestionInput { id: string; taskId: string; runId: string; toolCallId: string; status: 'pending' | 'answered' | 'cancelled'; answer?: string; createdAt: string }
 export interface Task {
+  todos?: TodoItem[];
   id: string; rootId: string; parentTaskId?: string; sessionId: string;
   objective: string; delegations?: DelegationPlan[]; agentId: string; depth: number; dependsOn: string[];
   status: Status; runIds: string[]; result?: string; error?: string; createdAt: string;
@@ -34,7 +38,7 @@ export interface Approval {
 export interface Artifact { id: string; runId: string; taskId: string; path: string; mediaType: string }
 export interface Budget { stepsUsed: number; maxSteps: number; maxTasks: number; maxDepth: number }
 export interface State {
-  sessions: Record<string, Session>; tasks: Record<string, Task>; runs: Record<string, Run>;
+  questions: Record<string, UserQuestion>; sessions: Record<string, Session>; tasks: Record<string, Task>; runs: Record<string, Run>;
   approvals: Record<string, Approval>; artifacts: Record<string, Artifact>; budgets: Record<string, Budget>;
 }
 export interface RuntimeEvent {

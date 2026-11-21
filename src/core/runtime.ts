@@ -1,17 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { terminal, approvalModes, type ApprovalMode, type AgentDefinition, type DelegationInput, type Message, type ModelProvider, type Run, type State, type SubmitInput, type Task, type ToolCall } from './domain.js';
+import { terminal, approvalModes, type QuestionInput, type TodoItem, type ApprovalMode, type AgentDefinition, type DelegationInput, type Message, type ModelProvider, type Run, type State, type SubmitInput, type Task, type ToolCall } from './domain.js';
 import { judgeApproval } from './approval.js';
-import { StateStore } from './store.js';
-import { createTools, type ToolRegistry } from './tools.js';
+import { StateStore } from '../storage/store.js';
+import { createTools, type ToolRegistry } from '../tools/index.js';
 import { prepareWorkspace, projectDirectory } from './workspace.js';
 
 export const defaultAgents: AgentDefinition[] = [
-  { id: 'coordinator', name: 'Coordinator', systemPrompt: '[coordinator] Respond in English unless the user explicitly requests another language. You coordinate tasks. Delegate independent work to researcher and reviewer with delegate_task, then wait_tasks and synthesize results. Children share the project read-only by default; request workspace=worktree for code changes in a separate committed-HEAD checkout. Do not claim unperformed actions. Tool errors must be acknowledged.', allowedTools: ['delegate_task', 'wait_tasks', 'list_files', 'read_file', 'write_file', 'run_command'] },
-  { id: 'researcher', name: 'Researcher', systemPrompt: '[researcher] Respond in English unless the user explicitly requests another language. Analyze the assigned task. Produce concrete findings and assumptions. Your session specifies the workspace; only use the tools actually available to you. Do not pretend that a plan was executed.', allowedTools: ['list_files', 'read_file', 'write_file', 'run_command'] },
-  { id: 'reviewer', name: 'Reviewer', systemPrompt: '[reviewer] Respond in English unless the user explicitly requests another language. Review the assigned objective, identify risks and propose verifiable checks. Your session specifies the workspace; only use the tools actually available to you. Distinguish actual tests from suggestions.', allowedTools: ['list_files', 'read_file', 'write_file', 'run_command'] },
-  { id: 'assistant', name: 'Assistant', systemPrompt: '[assistant] You are a helpful coding assistant. Respond directly to the user in English unless they request another language. Maintain conversational context. Use tools only when the request needs them. Do not invent tool results. Answer simple messages yourself. Only delegate when the user requests sub-agents or collaboration, or explicitly authorizes independent parallel work. When child results are supplied, synthesize them without repeating the delegation.', allowedTools: ['list_files', 'read_file', 'write_file', 'run_command', 'delegate_task', 'wait_tasks'] }
+  { id: 'coordinator', name: 'Coordinator', systemPrompt: '[coordinator] Respond in English unless the user explicitly requests another language. You coordinate tasks. Delegate independent work to researcher and reviewer with delegate_task, then wait_tasks and synthesize results. Children share the project read-only by default; request workspace=worktree for code changes in a separate committed-HEAD checkout. Do not claim unperformed actions. Tool errors must be acknowledged.', allowedTools: ['delegate_task', 'wait_tasks', 'list_files', 'read_file', 'write_file', 'run_command', 'grep', 'glob', 'apply_patch', 'ask_user', 'todo_write', 'read_artifact'] },
+  { id: 'researcher', name: 'Researcher', systemPrompt: '[researcher] Respond in English unless the user explicitly requests another language. Analyze the assigned task. Produce concrete findings and assumptions. Your session specifies the workspace; only use the tools actually available to you. Do not pretend that a plan was executed.', allowedTools: ['list_files', 'read_file', 'write_file', 'run_command', 'grep', 'glob', 'apply_patch', 'ask_user', 'todo_write', 'read_artifact'] },
+  { id: 'reviewer', name: 'Reviewer', systemPrompt: '[reviewer] Respond in English unless the user explicitly requests another language. Review the assigned objective, identify risks and propose verifiable checks. Your session specifies the workspace; only use the tools actually available to you. Distinguish actual tests from suggestions.', allowedTools: ['list_files', 'read_file', 'write_file', 'run_command', 'grep', 'glob', 'apply_patch', 'ask_user', 'todo_write', 'read_artifact'] },
+  { id: 'assistant', name: 'Assistant', systemPrompt: '[assistant] You are a helpful coding assistant. Respond directly to the user in English unless they request another language. Maintain conversational context. Use tools only when the request needs them. Do not invent tool results. Answer simple messages yourself. Only delegate when the user requests sub-agents or collaboration, or explicitly authorizes independent parallel work. When child results are supplied, synthesize them without repeating the delegation.', allowedTools: ['list_files', 'read_file', 'write_file', 'run_command', 'grep', 'glob', 'apply_patch', 'ask_user', 'todo_write', 'read_artifact', 'delegate_task', 'wait_tasks'] }
 ];
 
 /** Fair permits are held only during model/tool execution, never during approval/child waits. */
@@ -60,6 +60,7 @@ export class OrchestratorService {
       for (const task of Object.values(s.tasks)) if (!terminal(task.status)) { task.status = 'interrupted'; task.error = 'Runtime stopped before task completion'; }
       for (const run of Object.values(s.runs)) if (!terminal(run.status)) { run.status = 'interrupted'; run.finishedAt = new Date().toISOString(); }
       for (const approval of Object.values(s.approvals)) if (approval.status === 'pending') approval.status = 'cancelled';
+      for (const question of Object.values(s.questions)) if (question.status === 'pending') question.status = 'cancelled';
     });
   }
   info() { return { cwd: this.options.workspaceDir, model: this.options.model ?? 'custom', provider: this.options.provider ?? 'custom', defaultAgent: this.options.defaultAgent ?? 'assistant', approvalMode: this.options.approvalMode ?? 'manual' }; }
@@ -103,6 +104,7 @@ export class OrchestratorService {
   private insertTask(state: State, task: Task, allowedTools?: string[]) {
     state.tasks[task.id] = task;
     const definition = structuredClone(this.requireAgent(task.agentId));
+    definition.systemPrompt += '\nUse grep/glob to find files, read_file offset/limit to page, apply_patch for exact local edits, read_artifact to page large outputs, ask_user for missing decisions, and todo_write for multi-step plans. Independent read-only calls in the same response can run concurrently; submit dependent calls in separate responses.';
     const session = state.sessions[task.sessionId]!;
     const instructions = resolve(session.sourceCwd ?? session.cwd, 'AGENTS.md');
     if (existsSync(instructions)) definition.systemPrompt += `\n\nProject instructions (AGENTS.md):\n${readFileSync(instructions, 'utf8').slice(0, 64000)}`;
@@ -169,6 +171,7 @@ export class OrchestratorService {
         if (task.status === 'cancelled') run.finishedAt = new Date().toISOString();
       }
       for (const approval of Object.values(s.approvals)) if (ids.has(approval.taskId) && approval.status === 'pending') approval.status = 'cancelled';
+      for (const question of Object.values(s.questions)) if (ids.has(question.taskId) && question.status === 'pending') question.status = 'cancelled';
     }, { taskId });
     for (const id of ids) this.controllers.get(id)?.abort(new Error('Task cancelled'));
     this.kick();
@@ -177,6 +180,22 @@ export class OrchestratorService {
     const approval = this.store.snapshot().state.approvals[id];
     if (!approval || approval.status !== 'pending') throw new Error('Approval is not pending');
     this.store.change('approval.resolved', { id, decision }, s => { s.approvals[id]!.status = decision; }, { taskId: approval.taskId, runId: approval.runId });
+  }
+  answerQuestion(id: string, answer: string) {
+    const question = this.store.snapshot().state.questions[id];
+    if (!question || question.status !== 'pending') throw new Error('Question is not pending');
+    if (!answer.trim() || answer.length > 16000) throw new Error('Answer must contain 1–16000 characters');
+    this.store.change('question.answered', { id }, s => { s.questions[id]!.answer = answer.trim(); s.questions[id]!.status = 'answered'; }, { taskId: question.taskId, runId: question.runId });
+  }
+  private async askUser(taskId: string, runId: string, toolCallId: string, input: QuestionInput, signal: AbortSignal) {
+    const id = randomUUID();
+    this.store.change('question.requested', { id }, s => {
+      s.questions[id] = { ...input, id, taskId, runId, toolCallId, status: 'pending', createdAt: new Date().toISOString() };
+      s.tasks[taskId]!.status = 'waiting_user'; s.runs[runId]!.status = 'waiting_user';
+    }, { taskId, runId });
+    await this.waitFor(s => s.questions[id]!.status !== 'pending', signal);
+    signal.throwIfAborted(); this.setStatus(taskId, 'running');
+    return { answer: this.store.snapshot().state.questions[id]!.answer };
   }
   private kick() {
     if (this.scheduled || this.closing) return; this.scheduled = true;
@@ -207,6 +226,7 @@ export class OrchestratorService {
       const task = s.tasks[taskId]!; task.status = 'failed'; task.error = error;
       const run = s.runs[task.runIds.at(-1)!]!; run.status = 'failed'; run.finishedAt = new Date().toISOString();
       for (const approval of Object.values(s.approvals)) if (approval.taskId === taskId && approval.status === 'pending') approval.status = 'cancelled';
+      for (const question of Object.values(s.questions)) if (question.taskId === taskId && question.status === 'pending') question.status = 'cancelled';
     }, { taskId });
     this.kick();
   }
@@ -268,22 +288,7 @@ export class OrchestratorService {
           }, { taskId, runId });
           return;
         }
-        for (const call of calls) {
-          signal.throwIfAborted();
-          let result: unknown;
-          try { result = await this.executeTool(taskId, runId, call, workspace, signal); }
-          catch (error) { if (signal.aborted) throw error; result = { error: error instanceof Error ? error.message : String(error) }; }
-          const full = JSON.stringify(result) ?? 'null';
-          let content = full;
-          if (full.length > 24000) {
-            const artifactId = randomUUID();
-            const artifact = this.store.saveArtifact(taskId, runId, artifactId, full, 'application/json');
-            this.store.change('artifact.created', { artifactId }, s => { s.artifacts[artifactId] = artifact; }, { taskId, runId });
-            content = JSON.stringify({ truncated: true, artifactId, preview: full.slice(0, 20000) });
-          }
-          this.append(runId, { role: 'tool', toolCallId: call.id, content });
-          this.store.change('tool.completed', { toolCallId: call.id, name: call.name, result }, () => {}, { taskId, runId });
-        }
+        await this.executeCalls(taskId, runId, calls, workspace, signal);
       }
     } catch (error) {
       if (this.store.snapshot().state.tasks[taskId]!.status === 'cancelling') {
@@ -300,6 +305,28 @@ export class OrchestratorService {
   private append(runId: string, message: Message) {
     const taskId = this.store.snapshot().state.runs[runId]!.taskId;
     this.store.change('message.completed', { message }, s => { s.runs[runId]!.messages.push(message); }, { taskId, runId });
+  }
+  private async executeCalls(taskId: string, runId: string, calls: ToolCall[], workspace: string, signal: AbortSignal) {
+    const parallel = (call: ToolCall) => { try { const tool = this.tools.resolve(call.name); return tool.parallelSafe && tool.readOnly && !tool.approval; } catch { return false; } };
+    for (let index = 0; index < calls.length;) {
+      const batch = [calls[index++]!];
+      if (parallel(batch[0]!)) while (index < calls.length && parallel(calls[index]!)) batch.push(calls[index++]!);
+      const results = await Promise.allSettled(batch.map(call => this.executeTool(taskId, runId, call, workspace, signal)));
+      signal.throwIfAborted();
+      for (let i = 0; i < batch.length; i++) {
+        const call = batch[i]!; const outcome = results[i]!;
+        const result = outcome.status === 'fulfilled' ? outcome.value : { error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason) };
+        const full = JSON.stringify(result) ?? 'null'; let content = full;
+        if (full.length > 24000) {
+          const artifactId = randomUUID(); const artifact = this.store.saveArtifact(taskId, runId, artifactId, full, 'application/json');
+          this.store.change('artifact.created', { artifactId }, s => { s.artifacts[artifactId] = artifact; }, { taskId, runId });
+          const metadata = result && typeof result === 'object' ? Object.fromEntries(Object.entries(result).filter(([key]) => ['error', 'exitCode', 'timedOut', 'outputLimitReached'].includes(key))) : {};
+          content = JSON.stringify({ ...metadata, truncated: true, artifactId, preview: full.slice(0, 16000) });
+        }
+        this.append(runId, { role: 'tool', toolCallId: call.id, content });
+        this.store.change('tool.completed', { toolCallId: call.id, name: call.name, result: JSON.parse(content) }, () => {}, { taskId, runId });
+      }
+    }
   }
   private async executeTool(taskId: string, runId: string, call: ToolCall, workspace: string, signal: AbortSignal): Promise<unknown> {
     const run = this.store.snapshot().state.runs[runId]!;
@@ -343,10 +370,18 @@ export class OrchestratorService {
       if (this.store.snapshot().state.approvals[id]!.status !== 'approved') throw new Error(decision.status === 'denied' ? 'Agent denied this tool call: ' + decision.reason : 'User denied this exact tool call');
     }
     const context = { workspace, signal,
+      ask: (input: QuestionInput) => this.askUser(taskId, runId, call.id, input, signal),
+      setTodos: (items: TodoItem[]) => { this.store.change('task.plan_updated', {}, s => { s.tasks[taskId]!.todos = items; }, { taskId, runId }); return { items }; },
+      readArtifact: (id: string) => {
+        const state = this.store.snapshot().state; const artifact = state.artifacts[id]; const task = state.tasks[taskId]!;
+        const owner = artifact ? state.tasks[artifact.taskId] : undefined;
+        if (!owner || (owner.sessionId !== task.sessionId && owner.rootId !== task.rootId)) throw new Error('Artifact is outside this session or task tree');
+        return this.store.readArtifact(id);
+      },
       delegate: (input: DelegationInput) => ({ taskId: this.delegate(runId, input).id }),
       wait: (ids: string[]) => this.waitChildren(taskId, ids, signal) };
     // Coordination operations never acquire execution permits: they may await children.
-    if (call.name === 'wait_tasks' || call.name === 'delegate_task') return tool.execute(args, context);
+    if (['wait_tasks', 'delegate_task', 'ask_user'].includes(call.name)) return tool.execute(args, context);
     const release = await this.executions.acquire(signal);
     try { signal.throwIfAborted(); return await tool.execute(args, context); } finally { release(); }
   }

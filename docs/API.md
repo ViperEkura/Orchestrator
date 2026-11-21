@@ -12,11 +12,12 @@ Default server: `http://127.0.0.1:4317`. POST requests require `Content-Type: ap
 | POST | `/v1/tasks` | `{ objective, agentId?, sessionId?, delegations? }` → task |
 | POST | `/v1/tasks/:id/cancel` | `{}` → `{ ok: true }` |
 | POST | `/v1/tasks/:id/retry` | `{}` → new run |
+| POST | `/v1/questions/:id` | `{ answer: "chosen option or custom text" }` → `{ ok: true }` |
 | POST | `/v1/approvals/:id` | `{ decision: "approved" \| "denied" }` |
 
 Submit with a session ID to continue its conversation and stored cwd; omit it for a new root session in the runtime's project. SDK/API IDs are full IDs; prefix resolution belongs to the TUI.
 
-Snapshot state contains `sessions`, `tasks`, `runs`, `approvals`, `artifacts`, and `budgets`. Completed chat messages are in `runs[id].messages`. Sessions contain `cwd` and `workspace`; artifacts contain a path relative to the runtime data directory. Artifact content download is not exposed through HTTP yet.
+Snapshot state contains `sessions`, `tasks`, `runs`, `approvals`, `questions`, `artifacts`, and `budgets`. Completed chat messages are in `runs[id].messages`. Sessions contain `cwd` and `workspace`; artifacts contain a path relative to the runtime data directory. Artifact content download is not exposed through HTTP yet.
 
 ## Events
 
@@ -48,3 +49,7 @@ Errors use `{ "error": "..." }`: schema validation 400, authentication 401, host
 ### Approval mode
 
 `GET /v1/info` includes `approvalMode`. `POST /v1/approval-mode` accepts `{ "mode": "manual" | "agent" | "all" }` and returns updated runtime info. The SDK exposes `setApprovalMode(mode)`. Changes apply to new calls across the server and emit `approval.mode_changed`; they do not persist settings or resolve pending approvals. Configure `approvalMode` in global/project settings.json or `ORCHESTRATOR_APPROVAL_MODE` for the startup default. Approval records optionally include `mode` and `reason`; older history remains readable.
+
+## Questions and task plans
+
+`ask_user` creates a durable question with task/run/tool-call IDs, text, optional choices, and `pending` status. Its run enters `waiting_user` without holding an execution slot. Use `client.answer(id, answer)` or POST `/v1/questions/:id`; answers may be custom text. The answer is saved, returned as a tool result, and execution resumes. Repeated or stale answers return 409. Cancellation, deadlines and recovery cancel pending questions; approval mode does not answer them. Events include `question.requested`, `question.answered` and `task.plan_updated`. Plans live in `tasks[id].todos`.

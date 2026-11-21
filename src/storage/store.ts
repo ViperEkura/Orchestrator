@@ -3,9 +3,9 @@ import { dirname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { atomicJSON, lockDirectory } from './files.js';
-import type { Artifact, RuntimeEvent, Snapshot, State } from './domain.js';
+import type { Artifact, RuntimeEvent, Snapshot, State } from '../core/domain.js';
 
-export const emptyState = (): State => ({ sessions: {}, tasks: {}, runs: {}, approvals: {}, artifacts: {}, budgets: {} });
+export const emptyState = (): State => ({ questions: {}, sessions: {}, tasks: {}, runs: {}, approvals: {}, artifacts: {}, budgets: {} });
 type Patch = { path: string[]; op: 'set' | 'delete' | 'append'; value?: unknown };
 type Record = { version: 1; event: RuntimeEvent; changes: Patch[] };
 type ObjectMap = { [key: string]: unknown };
@@ -41,6 +41,7 @@ function apply(state: State, changes: Patch[]) {
 export class StateStore {
   readonly root: string;
   private state = emptyState();
+  private memoryArtifacts = new Map<string, string>();
   private log: RuntimeEvent[] = [];
   private listeners = new Set<(event: RuntimeEvent) => void>();
   private unlock?: () => void;
@@ -121,7 +122,13 @@ export class StateStore {
     const sessionId = this.state.tasks[taskId]!.sessionId;
     const path = join('artifacts', encodeURIComponent(sessionId), `${encodeURIComponent(id)}.json`);
     if (this.root !== ':memory:') atomicJSON(join(this.root, path), { mediaType, content });
+    else this.memoryArtifacts.set(id, content);
     return { id, runId, taskId, path, mediaType };
+  }
+  readArtifact(id: string): string {
+    const artifact = this.state.artifacts[id]; if (!artifact) throw new Error('Unknown artifact');
+    if (this.root === ':memory:') return this.memoryArtifacts.get(id) ?? '';
+    return (JSON.parse(readFileSync(join(this.root, artifact.path), 'utf8')) as { content: string }).content;
   }
   close() { if (this.closed) return; this.closed = true; this.listeners.clear(); this.unlock?.(); }
 }

@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { stripVTControlCharacters } from 'node:util';
 import stringWidth from 'string-width';
-import { renderMarkdown } from '../src/markdown.js';
-import { transcript, historyTop } from '../src/tui-view.js';
-import { emptyState } from '../src/store.js';
+import { renderMarkdown } from '../src/tui/markdown.js';
+import { transcript, historyTop } from '../src/tui/view.js';
+import { emptyState } from '../src/storage/store.js';
 
 const plain = (lines: string[]) => lines.map(stripVTControlCharacters);
 test('Markdown renders emphasis and block formatting while code remains literal', () => {
@@ -57,4 +57,13 @@ test('formatted live and persisted messages share layout and user-turn anchors',
   assert.equal(historyTop(stored, 8, { turnId: 't', line: 0 }), 0);
   assert.ok(stored.some(line => line.text === '**literal user input**'));
   assert.equal(state.runs.r.messages.at(-1)!.content, answer);
+});
+
+test('tables separate every logical row, including wrapped cells', () => {
+  const rows=renderMarkdown('| Name | Details |\n| --- | --- |\n| First | A long description that wraps across several terminal lines |\n| Second | Another entry |\n| Third | Final entry |',40).map(stripVTControlCharacters);
+  const separators=rows.map((line,i)=>line.startsWith('├')?i:-1).filter(i=>i>=0);
+  assert.equal(separators.length,3);
+  const second=rows.findIndex(line=>line.includes('Second')); const third=rows.findIndex(line=>line.includes('Third'));
+  assert.ok(separators[1]!<second);assert.ok(separators[2]!>second&&separators[2]!<third);
+  assert.ok(rows.every(line=>stringWidth(line)<=40));
 });

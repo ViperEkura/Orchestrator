@@ -1,15 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, render, useApp, useInput, useStdout } from 'ink';
-import { approvalModes, type ApprovalMode, type Snapshot, type Task } from './domain.js';
-import { OrchestratorClient } from './client.js';
+import { approvalModes, type ApprovalMode, type Snapshot, type Task } from '../core/domain.js';
+import { QuestionCard } from './question.js';
+import { OrchestratorClient } from '../transport/client.js';
 import { completeInput } from './completions.js';
-import { approvalPreview, anchorAt, historyTop, clean, conversations, short, statusColor, transcript, views, wrap, type HistoryAnchor, type Line, type View } from './tui-view.js';
+import { approvalPreview, anchorAt, historyTop, clean, conversations, short, statusColor, transcript, views, wrap, type HistoryAnchor, type Line, type View } from './view.js';
 
 export function App({ client }: { client: OrchestratorClient }) {
   const { exit } = useApp(); const { stdout } = useStdout();
   const [size, setSize] = useState({ columns: stdout.columns || 100, rows: stdout.rows || 30 });
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [info, setInfo] = useState<Awaited<ReturnType<OrchestratorClient['info']>>>();
+  const [questionDrafts, setQuestionDrafts] = useState<Record<string, string>>({});
   const [expandedApproval, setExpandedApproval] = useState<string>();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [reasoning, setReasoning] = useState<Record<string, string>>({});
@@ -72,7 +74,7 @@ export function App({ client }: { client: OrchestratorClient }) {
   const seenApprovals = useRef(new Set<string>());
   const previousPending = useRef(0);
   useEffect(() => {
-    if (busy) return;
+    if (busy || view === 'Questions') return;
     const fresh = approvals.findIndex(approval => !seenApprovals.current.has(approval.id));
     for (const approval of approvals) seenApprovals.current.add(approval.id);
     if (fresh >= 0 && view !== 'Approvals') {
@@ -82,6 +84,21 @@ export function App({ client }: { client: OrchestratorClient }) {
     }
     previousPending.current = approvals.length;
   }, [view, snapshot, busy]);
+  const questions = Object.values(state?.questions ?? {}).filter(question => question.status === 'pending');
+  const question = questions[0]; const seenQuestions = useRef(new Set<string>());
+  useEffect(() => {
+    if (busy) return;
+    if (!question && view === 'Questions') { setView('Chat'); return; }
+    if (approvals.length) return;
+    if (question && !seenQuestions.current.has(question.id)) {
+      seenQuestions.current.add(question.id); setView('Questions'); setDismissed(true);
+    }
+  }, [question?.id, view, busy, approvals.length]);
+  const answerQuestion = async (answer: string) => {
+    if (!question) return; setBusy(true);
+    try { await client.answer(question.id, answer); setSnapshot(await client.snapshot()); setNotice('Answer sent'); }
+    catch (error) { setNotice(String(error)); } finally { setBusy(false); }
+  };
   const allTurns = Object.values(state?.tasks ?? {}).filter(task => task.sessionId === sessionId);
   const turns = allTurns.filter(task => task.objective.toLowerCase().includes(filter.toLowerCase()));
   const list = view === 'History' ? turns : view === 'Sessions' ? sessions : view === 'Agents' ? tasks : approvals;
@@ -104,7 +121,7 @@ export function App({ client }: { client: OrchestratorClient }) {
     if (!line.trim()) return; setBusy(true);
     try {
       const [command, argument] = line.trim().split(/\s+/);
-      const navigation: Record<string, View> = { '/chat': 'Chat', '/history': 'History', '/sessions': 'Sessions', '/resume': 'Sessions', '/agents': 'Agents', '/approvals': 'Approvals' };
+      const navigation: Record<string, View> = { '/chat': 'Chat', '/history': 'History', '/sessions': 'Sessions', '/resume': 'Sessions', '/agents': 'Agents', '/approvals': 'Approvals', '/questions': 'Questions' };
       if (command === '/quit') { exit(); return; }
       if (navigation[command!]) switchView(navigation[command!]!);
       else if (command === '/help') { setInput('/'); setCompletionIndex(0); setDismissed(false); }
@@ -147,7 +164,7 @@ export function App({ client }: { client: OrchestratorClient }) {
   const details = !!approval && expandedApproval === approval.id;
   const approvalCard = approvalPreview(approval, state, contentWidth, details);
   const detailHeight = Math.min(approvalCard.lines.length, details ? 12 : 6, Math.max(1, size.rows - 13));
-  const panelHeight = view === 'Approvals' ? detailHeight + 4 : Math.max(7, Math.min(size.rows - 9, 13));
+  const panelHeight = view === 'Questions' ? Math.max(7, Math.min(13, size.rows - 9)) : view === 'Approvals' ? detailHeight + 4 : Math.max(7, Math.min(size.rows - 9, 13));
   const bodyHeight = Math.max(2, size.rows - 6 - (view === 'Chat' ? 3 + menuHeight : panelHeight));
   const transcriptHeight = Math.max(1, bodyHeight - 1);
   const contentHeight = view === 'Chat' ? transcriptHeight : panelHeight - 4 - (['Sessions', 'History'].includes(view) ? 1 : 0);
@@ -191,12 +208,13 @@ export function App({ client }: { client: OrchestratorClient }) {
       return;
     }
     if (key.ctrl && text === 'c') { exit(); return; }
+    if (view === 'Questions') return;
     if (key.escape) { if (completions.length) setDismissed(true); else if (view !== 'Chat') switchView('Chat'); else setInput(''); return; }
     if (busy) return;
     if (key.ctrl) {
       if (text === 'e' && view === 'Chat') { toggleDisclosure(chat.slice(top, top + transcriptHeight).find(line => line.disclosureId)); return; }
       if (text === 'n') newChat();
-      const shortcuts: Record<string, View> = { g: 'Chat', r: 'History', p: 'Sessions', t: 'Agents', o: 'Approvals' };
+      const shortcuts: Record<string, View> = { g: 'Chat', r: 'History', p: 'Sessions', t: 'Agents', o: 'Approvals', q: 'Questions' };
       if (shortcuts[text]) switchView(shortcuts[text]!);
       return;
     }
@@ -291,14 +309,17 @@ export function App({ client }: { client: OrchestratorClient }) {
       <Text dimColor wrap="truncate-end">{focus ? `CHAT · ${short(focus.sessionId)} · ${focus.agentId}` : 'NEW CONVERSATION'}{allTurns.length ? ` · Turn ${currentTurn}/${allTurns.length}` : ''}{view === 'Chat' && historyAnchor ? ` · ${aboveLatest} lines above latest · End to follow` : ''}</Text>
       {renderLines(preview, transcriptHeight)}
     </Box>
-    <Text color={approvals.length ? 'yellow' : 'gray'} wrap="truncate-end"> {view === 'Approvals' ? ' ' : approvals.length ? `${approvals.length} approval(s) waiting · Ctrl+O to review` : isThinking ? 'Thinking…' : running ? `${running} agent(s) working · Ctrl+T to inspect` : busy ? 'Working…' : clean(notice)}</Text>
+    <Text color={approvals.length ? 'yellow' : 'gray'} wrap="truncate-end"> {view === 'Approvals' ? ' ' : view !== 'Questions' && questions.length ? questions.length + ' question(s) waiting · Ctrl+Q to answer' : approvals.length ? `${approvals.length} approval(s) waiting · Ctrl+O to review` : isThinking ? 'Thinking…' : running ? `${running} agent(s) working · Ctrl+T to inspect` : busy ? 'Working…' : clean(notice)}</Text>
     {view === 'Chat' ? <Box height={3 + menuHeight} flexDirection="column" backgroundColor="#181818" paddingX={2} paddingY={1}>
       <Text color="#dedede" wrap="truncate-end"><Text color="cyan">› </Text>{wrap(input, Math.max(1, size.columns - 7)).at(-1)}{!busy ? <Text color="cyan">▌</Text> : null}{!input && !busy ? <Text color="#808080">  Type a task, or / for commands</Text> : null}</Text>
       {menuCount ? <>
         {completions.slice(Math.max(0, activeIndex - menuCount + 1), Math.max(menuCount, activeIndex + 1)).map(item => <Text key={item.value} color={item === completion ? 'cyan' : 'gray'} bold={item === completion} wrap="truncate-end">{item.label.padEnd(24)} {clean(item.description)}</Text>)}
         <Text dimColor wrap="truncate-end">↑↓ select · Tab complete · Enter select/run · Esc close</Text>
       </> : null}
-    </Box> : view === 'Approvals' ? <Box height={panelHeight} flexDirection="column" backgroundColor="#181818" paddingX={2} paddingY={1}>
+    </Box> : view === 'Questions' ? <QuestionCard key={question?.id ?? 'empty'} question={question} count={questions.length} width={size.columns} height={panelHeight} busy={busy}
+      draft={question ? questionDrafts[question.id] ?? '' : ''}
+      onDraft={value => { if (question) setQuestionDrafts(current => ({ ...current, [question.id]: value })); }}
+      onAnswer={answer => { void answerQuestion(answer); }} onClose={() => switchView('Chat')} /> : view === 'Approvals' ? <Box height={panelHeight} flexDirection="column" backgroundColor="#181818" paddingX={2} paddingY={1}>
       <Text wrap="truncate-end"><Text color="yellow" bold>{approvalCard.title}</Text>{approval ? <Text dimColor> · {clean(state?.tasks[approval.taskId]?.agentId ?? 'agent')}{approvals.length > 1 ? ` · ${row + 1}/${approvals.length}` : ''}</Text> : null}</Text>
       {renderLines(approvalCard.lines.slice(scroll, scroll + detailHeight), detailHeight)}
       <Text wrap="truncate-end">{approval ? <><Text color="cyan">Y allow</Text><Text dimColor> · N deny · D {details ? 'less' : 'details'} · Esc later</Text></> : <Text dimColor>Enter or Esc returns to chat</Text>}</Text>
@@ -309,7 +330,7 @@ export function App({ client }: { client: OrchestratorClient }) {
       <Box flexGrow={1} />
       <Text dimColor wrap="truncate-end">↑↓ select · Enter open · Esc back</Text>
     </Box>}
-    <Text dimColor wrap="truncate-end">{view === 'Approvals' ? [approvals.length > 1 ? ' ↑↓ requests' : '', maxOffset ? ` PgUp/PgDn · lines ${scroll + 1}–${Math.min(scroll + detailHeight, approvalCard.lines.length)}/${approvalCard.lines.length}` : ''].filter(Boolean).join(' ·') || ' ' : ' ↑↓ scroll · Click ▸ / Ctrl+E details · Ctrl+R turns · / commands'}</Text>
+    <Text dimColor wrap="truncate-end">{view === 'Questions' ? ' ' : view === 'Approvals' ? [approvals.length > 1 ? ' ↑↓ requests' : '', maxOffset ? ` PgUp/PgDn · lines ${scroll + 1}–${Math.min(scroll + detailHeight, approvalCard.lines.length)}/${approvalCard.lines.length}` : ''].filter(Boolean).join(' ·') || ' ' : ' ↑↓ scroll · Click ▸ / Ctrl+E details · Ctrl+R turns · / commands'}</Text>
   </Box>;
 }
 

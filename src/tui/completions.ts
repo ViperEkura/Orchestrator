@@ -1,4 +1,4 @@
-import { approvalModes, terminal, type State } from './domain.js';
+import { approvalModes, terminal, type State } from '../core/domain.js';
 
 export interface Completion { value: string; label: string; description: string; kind: 'command' | 'argument' }
 const commands = [
@@ -8,6 +8,7 @@ const commands = [
   ['/sessions', '', 'Browse and switch conversations'],
   ['/agents', '', 'Inspect the current agent task tree'],
   ['/approval', '<mode>', 'Set approval mode: manual, agent, all'],
+  ['/questions', '', 'Answer pending agent questions'],
   ['/approvals', '', 'Review pending tool approvals'],
   ['/new', '', 'Start a single-agent conversation'],
   ['/delegate', '<agent-id> <task>', 'Delegate a task to a sub-agent'],

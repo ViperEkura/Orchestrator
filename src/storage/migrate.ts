@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { StateStore } from './store.js';
 import { lockDirectory } from './files.js';
-import type { RuntimeEvent, State } from './domain.js';
+import type { RuntimeEvent, State } from '../core/domain.js';
 
 /** One-time, read-only SQLite import. Publish a new directory only after successful replay. */
 export async function migrateLegacy(source: string, destination: string) {
