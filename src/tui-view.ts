@@ -28,8 +28,8 @@ export function transcript(state: State | undefined, sessionId: string | undefin
       // Match the actual user turn, excluding context copied from older turns.
       const start = run.messages.findLastIndex(message => message.role === 'user' && message.content === task.objective);
       const disclosure = (id: string, name: string, status: string, summary: string, body: () => string, color = 'gray') => {
-        lines.push({ text: disclosureRow(expanded.has(id), name, status, summary, width), color, disclosureId: id });
-        if (expanded.has(id)) add(body(), 'gray');
+        lines.push({ text: disclosureRow(expanded.has(id), name, summary, width), color, disclosureId: id });
+        if (expanded.has(id)) { add('Status: ' + status, color); add(body(), 'gray'); }
       };
       for (let i = Math.max(0, start + 1); i < run.messages.length; i++) {
         const message = run.messages[i]!;
@@ -43,7 +43,7 @@ export function transcript(state: State | undefined, sessionId: string | undefin
           const status = approval?.status === 'denied' ? 'denied' : result ? failed ? 'failed' : 'completed' : approval?.status === 'pending' ? 'waiting approval' : ['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status) ? 'not executed' : 'pending';
           disclosure(runId + ':tool:' + i + ':' + call.id, call.name, status, toolSummary(call.name, call.arguments),
             () => 'Arguments\n' + prettyJSON(call.arguments) + '\n\nResult\n' + (result ? prettyJSON(result.content) : 'No result yet.'),
-            status === 'failed' || status === 'denied' ? 'red' : 'gray');
+            status === 'completed' ? 'green' : status === 'failed' || status === 'denied' ? 'red' : status === 'not executed' ? 'gray' : 'yellow');
         }
       }
       if (reasoning[runId]) disclosure(runId + ':thinking:' + run.messages.length, 'Thinking', 'streaming', reasoning[runId]!, () => reasoning[runId]!);
@@ -114,13 +114,13 @@ function toolSummary(name: string, argumentsText: string): string {
   return Object.keys(args).length ? JSON.stringify(args) : 'No arguments';
 }
 
-function disclosureRow(open: boolean, name: string, status: string, summary: string, width: number): string {
+function disclosureRow(open: boolean, name: string, summary: string, width: number): string {
   const nameWidth = Math.min(16, Math.max(8, Math.floor(width * 0.25)));
-  const statusWidth = Math.min(16, Math.max(7, Math.floor(width * 0.23)));
+
   const column = (text: string, size: number) => {
     const value = singleLine(text, size);
     return value + ' '.repeat(Math.max(0, size - stringWidth(value)));
   };
-  const prefix = (open ? '▾ ' : '▸ ') + column(name, nameWidth) + '  ' + column(status, statusWidth) + '  ';
+  const prefix = (open ? '▾ ' : '▸ ') + column(name, nameWidth) + '  ';
   return prefix + singleLine(summary, Math.max(1, width - stringWidth(prefix)));
 }

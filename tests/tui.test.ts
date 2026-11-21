@@ -223,10 +223,15 @@ test('thinking and tools are collapsed by default, preserve ordering and survive
   const { state } = fixture(); state.approvals = {}; state.runs.one!.messages = detailMessages();
   const collapsed = transcript(state, 'one', {}, 70);
   const headers = collapsed.filter(l => l.disclosureId).map(l => l.text);
-  assert.match(headers[0]!, /^▸ Thinking +completed +Model-provided reasoning text$/);
-  assert.match(headers[1]!, /^▸ run_command +failed +echo inspect$/);
+  assert.match(headers[0]!, /^▸ Thinking +Model-provided reasoning text$/);
+  assert.match(headers[1]!, /^▸ run_command +echo inspect$/);
   assert.equal(headers[0]!.indexOf('Model-provided'), headers[1]!.indexOf('echo inspect'));
-  assert.ok(!collapsed.some(l => /Arguments|Result|Command failed/.test(l.text)));
+  assert.ok(!collapsed.some(l => /Arguments|Result|Command failed|Status:/.test(l.text)));
+  assert.equal(collapsed.find(l => l.disclosureId?.includes(':tool:'))?.color, 'red');
+  assert.equal(collapsed.find(l => l.disclosureId?.includes(':thinking:'))?.color, 'gray');
+  state.runs.one!.messages[2]!.content = '{"exitCode":0}';
+  assert.equal(transcript(state, 'one', {}, 70).find(l => l.disclosureId?.includes(':tool:'))?.color, 'green');
+  state.runs.one!.messages = detailMessages();
   state.runs.one!.messages[1]!.reasoningContent = '中文摘要\n\t' + '详细内容'.repeat(30);
   const narrow = transcript(state, 'one', {}, 32).find(l => l.disclosureId)!;
   assert.match(narrow.text, /中文摘要/); assert.match(narrow.text, /…$/); assert.doesNotMatch(narrow.text, /[\n\t]/);
@@ -234,6 +239,7 @@ test('thinking and tools are collapsed by default, preserve ordering and survive
   state.runs.one!.messages = detailMessages();
   const expanded = new Set(collapsed.flatMap(l => l.disclosureId ? [l.disclosureId] : []));
   const text = transcript(JSON.parse(JSON.stringify(state)), 'one', {}, 70, expanded).map(l => l.text).join('\n');
+  assert.match(text, /Status: failed/); assert.match(text, /Status: completed/);
   assert.match(text, /Model-provided reasoning text/); assert.match(text, /echo inspect/); assert.match(text, /Command failed/);
   assert.ok(text.indexOf('Thinking') < text.indexOf('Checking the project'));
   assert.ok(text.indexOf('Result') < text.indexOf('Final response'));
@@ -262,14 +268,14 @@ test('click and Ctrl+E toggle records without submitting drafts or repeating too
   };
   try {
     await pause(160); await press('\x10'); await press('\r'); await press('draft kept');
-    assert.match(frame, /▸ Thinking +completed +Model-provided/); assert.equal(frame.split('Model-provided reasoning text').length - 1, 1);
+    assert.match(frame, /▸ Thinking +Model-provided/); assert.equal(frame.split('Model-provided reasoning text').length - 1, 1);
     await click('▸ Thinking'); assert.equal(frame.split('Model-provided reasoning text').length - 1, 2);
     await press('\x05'); assert.equal(frame.split('Model-provided reasoning text').length - 1, 1);
     await click('▸ run_command'); assert.match(frame, /echo inspect/); assert.match(frame, /Command failed/);
     await click('▾ run_command'); assert.match(frame, /echo inspect/); assert.doesNotMatch(frame, /Command failed/);
     assert.match(frame, /draft kept/); assert.equal(client.inputs.length, 0); assert.equal(client.decisions.length, 0);
     client.emit({ seq: 2, type: 'message.thinking', at: '', runId: 'one', data: { text: 'Streaming reasoning' }, transient: true });
-    await pause(); await click('streaming'); assert.match(frame, /Streaming reasoning/);
+    await pause(); await click('Streaming reasoning'); assert.match(frame, /Streaming reasoning/);
     client.data.state.runs.one!.messages.push({ role: 'assistant', content: '', reasoningContent: 'Streaming reasoning' });
     client.emit({ seq: 3, type: 'message.completed', at: '', runId: 'one', data: {} });
     await pause(180); assert.equal(frame.split('Streaming reasoning').length - 1, 2);

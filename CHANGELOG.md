@@ -54,3 +54,5 @@
 - Collapse whitespace and truncate long previews to terminal display width.
 
 - Align disclosure names, statuses and previews in responsive terminal columns.
+
+- Remove the disclosure status column; use color and show explicit status only inside expanded details.

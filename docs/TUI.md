@@ -42,4 +42,4 @@ Thinking streams live and is retained in completed assistant messages. Historica
 
 Disclosure rows include a single-line preview: the opening thinking text, a tool command/path, a delegated objective, or other arguments. Whitespace is collapsed and long previews end with an ellipsis according to terminal display width. Full contents remain available on expansion.
 
-Disclosure rows align name, status and preview into shared columns. Column padding uses terminal display width, including Chinese characters; narrower terminals shrink the columns and truncate each field separately.
+Disclosure rows align only the name and preview. Tool outcomes use color: green for completed, red for failed/denied, yellow for pending/approval, and gray for not executed. Thinking stays gray. Expanding a record reveals its explicit Status line. Column padding uses terminal display width, including Chinese characters; narrower terminals shrink the name column.
