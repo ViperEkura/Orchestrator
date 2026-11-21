@@ -20,7 +20,7 @@ npm.cmd run tui
 
 Startup shows help for a new conversation; use `/resume` to reopen saved history. Assistant replies render Markdown, including bold text and responsive tables. The last completed approval returns automatically to the input box.
 
-The terminal uses a conversation-first layout inspired by Pi and Codex: messages, one composer, and temporary selection panels. See [TUI shortcuts](docs/TUI.md).
+The terminal uses a conversation-first layout inspired by Pi and Codex: messages, one composer, and temporary selection panels. See [TUI shortcuts](docs/TUI.md) and the shared [Interface design](docs/INTERFACE_DESIGN.md).
 
 Type a message and press Enter for direct Assistant conversation. Use `/delegate reviewer task` for a sub-agent or `/team researcher,reviewer task` for a team. See [collaboration APIs](docs/COLLABORATION.md). Type `/` or a prefix such as `/ap` for inline suggestions: arrows select, Tab completes, Esc closes. Enter fills an incomplete command; a subsequent Enter executes it. IDs accept unique prefixes.
 
@@ -163,7 +163,10 @@ src/
   models/              Demo and compatible model providers
   tools/               Tool registry and built-in tools
   transport/           HTTP server, client SDK, shared SSE parser
-  tui/                 App, transcript, Markdown, completion, questions
+  tui/                 App, editor, project/team/settings/output panels, transcript
+  ui/                  Shared client labels and approval choices
+  web/                 Browser and desktop interface
+  desktop/             Native Windows host
 ```
 
 The CLI remains `src/main.ts`; public exports remain in `src/index.ts`. The `orchestrator/client` package export resolves to `transport/client`. Tests stay in `tests/` and import the relevant modules directly.
@@ -173,3 +176,5 @@ Built-in `grep`, `glob`, recursive listing, paged reads, exact edits, recoverabl
 ## Graphical clients
 
 Run `npm run desktop` for an native Windows app, or `npm run web` and open the printed local URL. Both share your existing runtime, conversations, approvals and agents. See [Desktop and web clients](docs/CLIENTS.md) for launch options and scope.
+
+Model profiles can be added and selected in both clients, including custom Chat Completions URLs and API keys. See [Model configuration and switching](docs/MODELS.md). Running tasks retain their original model; selections apply to new turns.

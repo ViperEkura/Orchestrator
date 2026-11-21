@@ -3,12 +3,12 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { StateStore } from './storage/store.js';
-import { CompatibleProvider, DemoProvider } from './models/providers.js';
+import { configuredModels } from './models/configured.js';
 import { OrchestratorService } from './core/runtime.js';
 import { OrchestratorClient } from './transport/client.js';
 import { startServer } from './transport/server.js';
 import { startTui } from './tui/app.js';
-import { loadConfig, resolveApiKey } from './core/config.js';
+import { loadConfig } from './core/config.js';
 
 async function main() {
   const args = process.argv.slice(2); const command = args.shift();
@@ -33,16 +33,15 @@ async function main() {
     console.log('Importing legacy history; the SQLite source and project files will remain unchanged.');
     console.log(await migrateLegacy(legacy, home));
   }
-  const { settings, agents } = loadConfig(cwd);
+  const config = loadConfig(cwd); const { settings, agents } = config;
   if (command === 'init') { console.log(`Configuration: ${home}\nProject: ${cwd}`); return; }
   const providerName = command === 'demo' ? 'demo' : settings.provider;
-  const provider = providerName === 'demo' ? new DemoProvider() : new CompatibleProvider({
-    ...settings, baseUrl: required('LLM_BASE_URL / baseUrl', settings.baseUrl), apiKey: resolveApiKey(settings), model: required('LLM_MODEL / model', settings.model)
-  });
+  const models = configuredModels(command === 'demo' ? { ...config, settings: { ...settings, provider: 'demo', activeModel: 'default', models: {} } } : config);
+  const provider = models.resolve();
   const store = new StateStore(home);
   let runtime: OrchestratorService | undefined; let server: Awaited<ReturnType<typeof startServer>> | undefined;
   try {
-    runtime = new OrchestratorService(store, provider, { ...settings, workspaceDir: cwd, agents });
+    runtime = new OrchestratorService(store, provider, { ...settings, workspaceDir: cwd, agents, modelRegistry: models });
     if (command === 'demo') {
       const off = store.subscribe(event => { if (event.type !== 'message.delta' && event.type !== 'message.completed') console.log(`#${event.seq} ${event.type} ${event.taskId?.slice(0, 8) ?? ''}`); });
       const task = runtime.submit({ agentId: 'coordinator', objective: args.join(' ') || 'Design a multi-agent framework for terminal, web, and desktop clients' });
@@ -58,5 +57,4 @@ async function main() {
     }
   } finally { await server?.close(); await runtime?.close(); store.close(); }
 }
-function required(name: string, value: string | undefined) { if (!value) throw new Error(`Missing ${name}`); return value; }
 main().catch(error => { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1; });

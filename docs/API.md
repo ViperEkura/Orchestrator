@@ -57,3 +57,7 @@ Errors use `{ "error": "..." }`: schema validation 400, authentication 401, host
 ## Graphical client additions
 
 `POST /v1/tasks` accepts an optional `cwd` for a new session: an existing local directory. Supplying both `cwd` and `sessionId` is rejected; session workspaces are immutable. `GET /v1/artifacts/:id?offset=0` returns `{content,total,nextOffset}` with at most 64,000 characters per page and requires the same authentication as other APIs. The web command serves only `/`, `/index.html`, `/app.js`, `/app.css`; static assets contain no credentials.
+
+## Model profiles
+
+GET /v1/models lists public profiles. POST /v1/models accepts { name?, baseUrl, model, apiKey } and stores credentials separately. POST /v1/model selects { id }; GET /v1/info includes modelId. Selections are persisted; running and queued tasks retain their recorded model. See [Models](MODELS.md) for scope and credentials.

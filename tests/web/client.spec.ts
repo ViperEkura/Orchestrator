@@ -1,3 +1,4 @@
+import { ModelRegistry } from '../../src/models/registry.js';
 import { test, expect, chromium } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
@@ -5,10 +6,10 @@ import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { OrchestratorService } from '../src/core/runtime.js';
-import { StateStore } from '../src/storage/store.js';
-import { startServer } from '../src/transport/server.js';
-import type { Message, ModelChunk, ToolSpec } from '../src/core/domain.js';
+import { OrchestratorService } from '../../src/core/runtime.js';
+import { StateStore } from '../../src/storage/store.js';
+import { startServer } from '../../src/transport/server.js';
+import type { Message, ModelChunk, ToolSpec } from '../../src/core/domain.js';
 
 let directory: string, project: string, store: StateStore, runtime: OrchestratorService, server: Awaited<ReturnType<typeof startServer>>;
 class PreviewProvider {
@@ -26,7 +27,9 @@ class PreviewProvider {
 }
 test.beforeAll(async()=>{
   directory=await mkdtemp(resolve('dist/web-test-')); project=join(directory,'Project'); await mkdir(project);
-  store=new StateStore(join(directory,'data'));runtime=new OrchestratorService(store,new PreviewProvider(),{workspaceDir:project,model:'Preview provider',provider:'test'});
+  const models=new ModelRegistry([{description:{id:'default',name:'Preview provider',model:'Preview provider',provider:'test'},create:()=>new PreviewProvider()}], 'default', undefined,
+    (id,input)=>({description:{id,name:input.name??input.model,model:input.model,provider:'compatible'},create:()=>new PreviewProvider()}));
+  store=new StateStore(join(directory,'data'));runtime=new OrchestratorService(store,new PreviewProvider(),{workspaceDir:project,model:'Preview provider',provider:'test',modelRegistry:models});
   server=await startServer(runtime,{port:0,token:'web-test-token',webRoot:resolve('dist/web')});
 });
 test.afterAll(async()=>{await server?.close();await runtime?.close();store?.close();if(directory?.startsWith(resolve('dist/web-test-')))await rm(directory,{recursive:true,force:true,maxRetries:12,retryDelay:500});});
@@ -132,4 +135,111 @@ test('packaged exe starts its own runtime and closes cleanly',async()=>{
     await page.evaluate(()=>window.close()).catch(()=>{});
     await expect.poll(()=>closed,{timeout:12000}).toBe(true);
   } finally { if(!closed)child.kill();await browser?.close().catch(()=>{}); }
+});
+
+
+test('compact navigation, search empty state and dialog focus preserve the composer', async ({page}) => {
+  await page.setViewportSize({width:390,height:760});
+  await visit(page);
+  const editor = page.getByRole('textbox',{name:'Message',exact:true});
+  await editor.fill('Keep this draft');
+  await page.getByRole('button',{name:'Agents',exact:true}).click();
+  await page.getByRole('button',{name:'Done',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Agents',exact:true})).toBeFocused();
+  await expect(editor).toHaveValue('Keep this draft');
+  await page.keyboard.press('Control+k');
+  await expect(page.getByRole('textbox',{name:'Search conversations'})).toBeFocused();
+  await page.getByRole('textbox',{name:'Search conversations'}).fill('no-match-unique-123');
+  await expect(page.getByText('No matching conversations.',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Close sidebar',exact:true}).click({position:{x:320,y:100}});
+  await expect(editor).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  const send = await page.getByRole('button',{name:'Send message',exact:true}).boundingBox();
+  expect(send!.x + send!.width).toBeLessThanOrEqual(390);
+  if(process.env.ORCHESTRATOR_MOBILE_SCREENSHOT)await page.screenshot({path:process.env.ORCHESTRATOR_MOBILE_SCREENSHOT});
+});
+
+
+test('approval menu supports keyboard selection, dismissal and narrow windows', async ({page}) => {
+  await visit(page);
+  const trigger = page.getByRole('button',{name:'Approval mode',exact:true});
+  const menu = page.getByRole('menu',{name:'Approval mode',exact:true});
+  await trigger.click();
+  await expect(menu).toBeVisible();
+  await expect(page.getByRole('menuitemradio',{name:/Ask for approval/})).toBeFocused();
+  await page.keyboard.press('End'); await page.keyboard.press('Enter');
+  await expect(trigger).toHaveText('Allow all');
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+  expect(runtime.info().approvalMode).toBe('all');
+  await trigger.click();
+  await expect(menu).toBeVisible();
+  await expect(page.getByRole('menuitemradio',{name:/Allow all/})).toBeFocused();
+  await page.keyboard.press('Home'); await page.keyboard.press('Enter');
+  await expect(trigger).toHaveText('Ask for approval');
+  await trigger.click();
+  if(process.env.ORCHESTRATOR_MENU_SCREENSHOT) await page.screenshot({path:process.env.ORCHESTRATOR_MENU_SCREENSHOT});
+  await page.keyboard.press('Escape'); await expect(trigger).toBeFocused();
+  await trigger.click(); await page.getByRole('heading',{name:'What would you like to build?'}).click();
+  await expect(menu).toBeHidden();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('dialog').getByRole('button',{name:'Approval mode'}).click();
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button',{name:'Close dialog'}).click();
+  await page.setViewportSize({width:390,height:760});
+  await trigger.click();
+  const bounds=await menu.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(390);
+  expect(bounds!.y).toBeGreaterThanOrEqual(0);
+  expect(bounds!.y+bounds!.height).toBeLessThanOrEqual(760);
+  if(process.env.ORCHESTRATOR_MENU_MOBILE_SCREENSHOT) await page.screenshot({path:process.env.ORCHESTRATOR_MENU_MOBILE_SCREENSHOT});
+});
+
+
+test('projects contain their own conversations and collapse without losing selection', async ({page}) => {
+  await visit(page);
+  const other=join(directory,'GroupedProject');await mkdir(other,{recursive:true});
+  const first=runtime.submit({objective:'Conversation in Project',cwd:project});await runtime.waitUntilDone(first.id);
+  const second=runtime.submit({objective:'Conversation in GroupedProject',cwd:other});await runtime.waitUntilDone(second.id);
+  await page.reload();
+  const group=page.locator('.project-group').filter({has:page.getByRole('button',{name:'New chat in GroupedProject',exact:true})});
+  await expect(group.locator('.session-row')).toHaveCount(1);
+  await expect(group.locator('.session-row')).toHaveText('Conversation in GroupedProject');
+  await group.locator('.session-row').click();
+  await expect(page.locator('.chat-heading')).toContainText('GroupedProject');
+  await group.getByRole('button',{name:'GroupedProject',exact:true}).click();
+  await expect(group.locator('.session-row')).toHaveCount(0);
+  await expect(page.locator('.chat-heading')).toContainText('Conversation in GroupedProject');
+  await group.getByRole('button',{name:'New chat in GroupedProject',exact:true}).click();
+  await expect(page.locator('.chat-heading')).toContainText('New conversation');
+  await expect(page.locator('.chat-heading')).toContainText('GroupedProject');
+  await expect(group.locator('.session-row')).toBeVisible();
+  await page.getByRole('textbox',{name:'Search conversations'}).fill('Conversation in GroupedProject');
+  await expect(page.locator('.project-group')).toHaveCount(1);
+});
+
+
+test('users add custom model endpoints and switch without exposing the API key',async({page})=>{
+  await visit(page);
+  await page.getByRole('button',{name:'Choose model',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'Choose model',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Add model',exact:true}).click();
+  await page.getByLabel('Display name',{exact:true}).fill('My custom model');
+  await page.getByLabel('API base URL',{exact:true}).fill('https://provider.example.test/v1');
+  await page.getByLabel('Model ID',{exact:true}).fill('custom-model');
+  await page.getByLabel('API key',{exact:true}).fill('private-ui-test-key');
+  await expect(page.getByLabel('API key',{exact:true})).toHaveAttribute('type','password');
+  await page.getByRole('button',{name:'Save and use',exact:true}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Choose model',exact:true})).toContainText('custom-model');
+  expect(JSON.stringify(store.events())).not.toContain('private-ui-test-key');
+  await page.getByRole('button',{name:'Choose model',exact:true}).click();
+  await expect(page.getByRole('dialog')).toContainText('My custom model');
+  expect(await page.locator('body').textContent()).not.toContain('private-ui-test-key');
+  if(process.env.ORCHESTRATOR_MODELS_SCREENSHOT)await page.screenshot({path:process.env.ORCHESTRATOR_MODELS_SCREENSHOT});
+  await page.getByRole('dialog').getByRole('button',{name:/Preview provider/}).click();
+  await expect(page.getByRole('button',{name:'Choose model',exact:true})).toContainText('Preview provider');
 });

@@ -8,7 +8,7 @@ import { App } from '../src/tui/app.js';
 import { emptyState } from '../src/storage/store.js';
 import { OrchestratorClient } from '../src/transport/client.js';
 import { anchorAt, historyTop, conversations, transcript } from '../src/tui/view.js';
-import type { Snapshot, Task, RuntimeEvent, SubmitInput } from '../src/core/domain.js';
+import type { ModelInput, ModelDescriptor, ApprovalMode, Snapshot, Task, RuntimeEvent, SubmitInput } from '../src/core/domain.js';
 
 function fixture(): Snapshot {
   const state = emptyState();
@@ -41,7 +41,21 @@ class FakeClient extends OrchestratorClient {
   private queued: RuntimeEvent[] = []; private wake?: () => void;
   emit(event: RuntimeEvent) { this.queued.push(event); this.wake?.(); }
   constructor() { super('http://localhost:4317'); }
-  override async info() { return { cwd: 'C:/Develop/example', model: 'test-model', provider: 'compatible', defaultAgent: 'assistant', approvalMode: 'manual' as const }; }
+  approvalMode: ApprovalMode = 'manual';
+  modelId = 'default';
+  profiles: ModelDescriptor[] = [{id:'default',name:'Test',model:'test-model',provider:'compatible'}];
+  addedModels: ModelInput[] = [];
+  override async models() { return this.profiles; }
+  override async setModel(id: string) { this.modelId=id;return this.info(); }
+  override async addModel(input: ModelInput) { this.addedModels.push(input);const item={id:'custom',name:input.name??input.model,model:input.model,provider:'compatible'};this.profiles.push(item);return item; }
+  override async info() { return { cwd: 'C:/Develop/example', model: this.profiles.find(item=>item.id===this.modelId)!.model, modelId:this.modelId, provider: 'compatible', defaultAgent: 'assistant', approvalMode: this.approvalMode }; }
+  override async setApprovalMode(mode: ApprovalMode) { this.approvalMode = mode; return this.info(); }
+  override async agents() { return ['assistant', 'researcher', 'reviewer'].map(id => ({id, name: id, systemPrompt: '', allowedTools: []})); }
+  artifactReads: number[] = [];
+  override async artifact(_id: string, offset = 0) {
+    this.artifactReads.push(offset);
+    return { content: offset ? 'Second output page' : 'First output page\n', total: 35, nextOffset: offset ? null : 18 };
+  }
   override async snapshot() { return structuredClone(this.data); }
   override async *events(_after: number, signal: AbortSignal): AsyncGenerator<RuntimeEvent> {
     const abort = () => this.wake?.(); signal.addEventListener('abort', abort, { once: true });
@@ -62,6 +76,80 @@ class FakeClient extends OrchestratorClient {
 }
 
 const pause = (ms = 60) => new Promise(resolve => setTimeout(resolve, ms));
+
+function terminalHarness(client: FakeClient, columns = 100, rows = 30) {
+  let frame = '';
+  const output = Object.assign(new Writable({ write(chunk, _encoding, done) { const text = chunk.toString(); if (text.includes('ORCHESTRATOR')) frame = text; done(); } }), { columns, rows, isTTY: true });
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {}, ref() {}, unref() {} });
+  const app = render(React.createElement(App, { client }), { stdout: output as unknown as NodeJS.WriteStream, stdin: input as unknown as NodeJS.ReadStream, debug: true, patchConsole: false, exitOnCtrlC: false });
+  return {
+    frame: () => frame.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ''),
+    press: async (key: string) => { input.write(key); await pause(); },
+    close: () => { app.unmount(); app.cleanup(); input.destroy(); output.destroy(); },
+  };
+}
+
+test('TUI project tree folds, filters and creates conversations in the selected project', async () => {
+  const client = new FakeClient(); client.data.state.approvals = {};
+  client.data.state.sessions.two!.cwd = 'C:/Develop/another project';
+  const tui = terminalHarness(client);
+  try {
+    await pause(160); await tui.press('\x10');
+    assert.match(tui.frame(), /PROJECTS · 2/); assert.match(tui.frame(), /First conversation/); assert.match(tui.frame(), /Second conversation/);
+    await tui.press('\x1b[D'); assert.doesNotMatch(tui.frame(), /First conversation/);
+    await tui.press('\x1b[C'); assert.match(tui.frame(), /First conversation/);
+    await tui.press('Second'); assert.doesNotMatch(tui.frame(), /First conversation/);
+    await tui.press('+'); assert.match(tui.frame(), /NEW CONVERSATION/); assert.match(tui.frame(), /C:\/Develop\/another project/);
+    await tui.press('new project task'); await tui.press('\r');
+    assert.equal(client.inputs.at(-1)?.cwd, 'C:/Develop/another project'); assert.equal(client.inputs.at(-1)?.sessionId, undefined);
+    await tui.press('\x10'); await tui.press('\x01'); assert.match(tui.frame(), /OPEN PROJECT/);
+    // Ctrl+A opens a directory editor without touching the conversation draft.
+    for (let i = 0; i < 'C:/Develop/another project'.length; i++) await tui.press('\x7f');
+    await tui.press('C:/Develop/third project'); await tui.press('\r');
+    await tui.press('third task'); await tui.press('\r'); assert.equal(client.inputs.at(-1)?.cwd, 'C:/Develop/third project');
+  } finally { tui.close(); }
+});
+
+test('TUI settings and agent selection preserve drafts and submit the same structured team as web', async () => {
+  const client = new FakeClient(); client.data.state.approvals = {};
+  const tui = terminalHarness(client, 70, 24);
+  try {
+    await pause(160); await tui.press('review my project'); await tui.press('\x13');
+    assert.match(tui.frame(), /SETTINGS · Approval mode/); assert.match(tui.frame(), /Ask for approval/); assert.match(tui.frame(), /Agent decides/);
+    await tui.press('\x1b[B'); await tui.press('\r'); assert.equal(client.approvalMode, 'agent'); assert.match(tui.frame(), /review my project/);
+    await tui.press('\x0c'); assert.match(tui.frame(), /CHOOSE AGENTS/);
+    await tui.press(' '); await tui.press('\x1b[B'); await tui.press(' '); await tui.press('\r');
+    assert.match(tui.frame(), /2 agents selected/); assert.match(tui.frame(), /review my project/);
+    await tui.press('\r');
+    assert.deepEqual(client.inputs.at(-1)?.delegations, [{agentId:'researcher',objective:'review my project'}, {agentId:'reviewer',objective:'review my project'}]);
+    assert.doesNotMatch(tui.frame(), /2 agents selected/);
+    await tui.press('/team'); await tui.press('\r'); assert.match(tui.frame(), /CHOOSE AGENTS/);
+    await tui.press('\x1b'); await tui.press('/approval'); await tui.press('\r'); assert.match(tui.frame(), /SETTINGS · Approval mode/);
+  } finally { tui.close(); }
+});
+
+test('TUI output paging, parent navigation and narrow panels retain the current conversation', async () => {
+  const client = new FakeClient(); client.data.state.approvals = {};
+  const state = client.data.state;
+  state.tasks.child = {...state.tasks.two!,id:'child',parentTaskId:'two',rootId:'two',sessionId:'child',depth:1,runIds:[]};
+  state.sessions.child = {...state.sessions.two!,id:'child',parentSessionId:'two'};
+  state.artifacts.file = { id:'file',runId:'two',taskId:'two',path:'test.txt',mediaType:'text/plain' };
+  const tui = terminalHarness(client, 50, 18);
+  try {
+    await pause(160); await tui.press('\x10'); await tui.press('\r'); await tui.press('draft kept');
+    await tui.press('\x15'); assert.match(tui.frame(), /OUTPUTS · 1/); await tui.press('\r');
+    assert.match(tui.frame(), /First output page/); await tui.press('l'); assert.deepEqual(client.artifactReads, [0,18]);
+    for (let i=0;i<8;i++) await tui.press('\x1b[6~'); assert.match(tui.frame(), /Second output page/);
+    await tui.press('\x1b'); await tui.press('\x1b'); assert.match(tui.frame(), /draft kept/);
+    await tui.press('\x14'); await tui.press('\x1b[B'); await tui.press('\r'); assert.match(tui.frame(), /CHAT · child/);
+    await tui.press('\x02'); assert.match(tui.frame(), /CHAT · two/); assert.match(tui.frame(), /draft kept/);
+    for (const key of ['\x10','\x0c','\x13','\x15']) {
+      await tui.press(key); const lines=tui.frame().trimEnd().split('\n');
+      assert.ok(lines.length<=17, `frame has ${lines.length} rows`);
+      assert.ok(lines.every(line=>stringWidth(line)<=50));
+    }
+  } finally { tui.close(); }
+});
 test('TUI navigates sessions, history, agents and approvals; new chat clears the old target; narrow resize fits', async () => {
   const client = new FakeClient(); let frame = '';
   const output = Object.assign(new Writable({ write(chunk, _encoding, done) { const text = chunk.toString(); if (text.includes('ORCHESTRATOR')) frame = text; done(); } }), { columns: 120, rows: 30, isTTY: true });
@@ -309,4 +397,50 @@ test('questions automatically open, accept choices or custom text and preserve t
     client.data.state.questions.last!.status='cancelled';client.emit({seq:5,type:'run.cancelled',at:'',data:{}});await pause(180);assert.match(frame,/draft for chat/);
     assert.equal(client.inputs.length,0);assert.equal(client.decisions.length,0);
   } finally {app.unmount();app.cleanup();input.destroy();output.destroy();}
+});
+
+
+test('composer edits at the cursor, retains multiline paste and restores per-session drafts', async () => {
+  const client = new FakeClient(); client.data.state.approvals = {};
+  let frame = '';
+  const output = Object.assign(new Writable({ write(chunk, _encoding, done) { frame = chunk.toString(); done(); } }), { columns: 80, rows: 24, isTTY: true });
+  const input = Object.assign(new PassThrough(), { isTTY: true, setRawMode() {}, ref() {}, unref() {} });
+  const app = render(React.createElement(App, { client }), { stdout: output as unknown as NodeJS.WriteStream, stdin: input as unknown as NodeJS.ReadStream, debug: true, patchConsole: false, exitOnCtrlC: false });
+  const press = async (key: string) => { input.write(key); await pause(); };
+  try {
+    await pause(160);
+    await press('acX'); await press('\x7f'); await press('\x1b[D'); await press('b'); await press('Z'); await press('\x1b[D'); await press('\x1b[3~'); await press('\r');
+    assert.equal(client.inputs[0]?.objective, 'abc');
+    await press('\x10'); await press('Second'); await press('\r');
+    await press('draft two');
+    await press('\x10'); await press('First'); await press('\r');
+    await press('first line\nsecond line');
+    await press('\x10'); await press('Second'); await press('\r');
+    assert.match(frame, /draft two/); assert.doesNotMatch(frame, /first line/);
+    await press('\x10'); await press('First'); await press('\r');
+    assert.match(frame, /first line/); assert.match(frame, /second line/);
+    await press('\r');
+    assert.equal(client.inputs.at(-1)?.objective, 'first line\nsecond line');
+    assert.equal(client.inputs.at(-1)?.sessionId, 'one');
+  } finally { app.unmount(); app.cleanup(); input.destroy(); output.destroy(); }
+});
+
+
+test('TUI adds and selects custom models while masking keys and retaining the chat draft',async()=>{
+  const client=new FakeClient();client.data.state.approvals={};const tui=terminalHarness(client,70,24);
+  try {
+    await pause(160);await tui.press('/models');await tui.press('\r');assert.match(tui.frame(),/CHOOSE MODEL/);
+    assert.match(tui.frame(),/\+ Add model/);
+    for(const shortcut of ['a','A']){await tui.press(shortcut);assert.match(tui.frame(),/ADD MODEL/);await tui.press('\x1b');}
+    await tui.press('\x1b[B');await tui.press('\r');assert.match(tui.frame(),/ADD MODEL/);
+    await tui.press('My endpoint');await tui.press('\t');await tui.press('https://provider.example.test/v1');
+    await tui.press('\t');await tui.press('custom-model');await tui.press('\t');await tui.press('private-ui-key');
+    assert.doesNotMatch(tui.frame(),/private-ui-key/);assert.match(tui.frame(),/•••/);
+    await tui.press('\r');assert.equal(client.modelId,'custom');assert.match(tui.frame(),/custom-model/);
+    assert.equal(client.addedModels[0]?.baseUrl,'https://provider.example.test/v1');assert.equal(client.addedModels[0]?.apiKey,'private-ui-key');
+    await tui.press('draft kept');await tui.press('\x13');await tui.press('\t');await tui.press('\t');
+    // Outputs then Models in the shared panel cycle.
+    assert.match(tui.frame(),/CHOOSE MODEL/);await tui.press('\x1b[A');await tui.press('\r');
+    assert.equal(client.modelId,'default');assert.match(tui.frame(),/draft kept/);assert.equal(client.inputs.length,0);
+  } finally {tui.close();}
 });

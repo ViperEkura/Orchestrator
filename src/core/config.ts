@@ -6,9 +6,18 @@ import { atomicJSON } from '../storage/files.js';
 import { approvalModes } from './domain.js';
 import { defaultAgents } from './runtime.js';
 
-const settingsSchema = z.object({
+const profileSchema = z.object({
+  name: z.string().optional(), provider: z.enum(['demo', 'compatible']).optional(),
+  baseUrl: z.string().url().optional(), model: z.string().min(1), apiKeyEnv: z.string().optional(),
+  credentials: z.object({file:z.string(),provider:z.string()}).strict().optional(),
+  thinking: z.enum(['enabled','disabled']).optional(), reasoningEffort: z.enum(['low','high','max']).optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
+}).strict();
+export const settingsSchema = z.object({
   provider: z.enum(['demo', 'compatible']).default('demo'),
   baseUrl: z.string().url().optional(), model: z.string().optional(),
+  activeModel: z.string().default('default'),
+  models: z.record(z.string().min(1), profileSchema).default({}).refine(models => !Object.hasOwn(models, 'default'), 'default is reserved for the legacy model'),
   defaultAgent: z.string().default('assistant'),
   approvalMode: z.enum(approvalModes).default('manual'),
   credentials: z.object({ file: z.string(), provider: z.string() }).strict().optional(),
@@ -28,7 +37,7 @@ export function loadConfig(cwd = process.cwd(), env: NodeJS.ProcessEnv = process
   const read = (path: string) => existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as object : {};
   const projectFile = join(cwd, '.orchestrator', 'settings.json');
   const overrides = Object.fromEntries(Object.entries({
-    approvalMode: env.ORCHESTRATOR_APPROVAL_MODE, provider: env.ORCHESTRATOR_PROVIDER, baseUrl: env.LLM_BASE_URL, model: env.LLM_MODEL,
+    activeModel: env.ORCHESTRATOR_MODEL ?? (env.ORCHESTRATOR_PROVIDER || env.LLM_MODEL || env.LLM_BASE_URL ? 'default' : undefined), approvalMode: env.ORCHESTRATOR_APPROVAL_MODE, provider: env.ORCHESTRATOR_PROVIDER, baseUrl: env.LLM_BASE_URL, model: env.LLM_MODEL,
     host: env.ORCHESTRATOR_HOST, port: env.ORCHESTRATOR_PORT === undefined ? undefined : Number(env.ORCHESTRATOR_PORT)
   }).filter(([, value]) => value !== undefined));
   const settings = settingsSchema.parse({ ...read(globalFile), ...read(projectFile), ...overrides });
@@ -45,13 +54,14 @@ export function loadConfig(cwd = process.cwd(), env: NodeJS.ProcessEnv = process
   return { home, cwd, settings, agents };
 }
 
-export function resolveApiKey(settings: { credentials?: { file: string; provider: string } }, env: NodeJS.ProcessEnv = process.env): string {
+export function resolveApiKey(settings: { apiKeyEnv?: string; credentials?: { file: string; provider: string } }, env: NodeJS.ProcessEnv = process.env): string {
+  if (settings.apiKeyEnv) { const key = env[settings.apiKeyEnv]; if (!key) throw new Error('Configured API key environment variable is empty'); return key; }
   if (env.LLM_API_KEY) return env.LLM_API_KEY;
   if (settings.credentials) {
     const { file, provider } = settings.credentials;
     const auth = JSON.parse(readFileSync(file, 'utf8')) as Record<string, { type?: string; key?: string }>;
     const entry = auth[provider];
-    if (entry?.type === 'api' && typeof entry.key === 'string' && entry.key) return entry.key;
+    if (entry?.type === 'api' && typeof entry.key === 'string') return entry.key;
     throw new Error('Referenced credential does not contain an API key');
   }
   throw new Error('Set LLM_API_KEY or configure a credential file reference');

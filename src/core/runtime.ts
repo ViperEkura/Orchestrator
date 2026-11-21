@@ -1,3 +1,5 @@
+import { ModelRegistry } from '../models/registry.js';
+import type { ModelInput } from './domain.js';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
@@ -34,12 +36,14 @@ export class Semaphore {
 
 export interface RuntimeOptions {
   approvalMode?: ApprovalMode; workspaceDir: string; defaultAgent?: string; model?: string; provider?: string; concurrency?: number; maxSteps?: number; maxTasks?: number;
+  modelRegistry?: ModelRegistry;
   maxDepth?: number; runTimeoutMs?: number; agents?: AgentDefinition[]; tools?: ToolRegistry;
 }
 
 export class OrchestratorService {
   readonly agents: Map<string, AgentDefinition>;
   readonly tools: ToolRegistry;
+  private catalog: ModelRegistry;
   private models: Semaphore;
   private executions: Semaphore;
   private controllers = new Map<string, AbortController>();
@@ -47,6 +51,7 @@ export class OrchestratorService {
   private scheduled = false;
   private closing = false;
   constructor(readonly store: StateStore, private provider: ModelProvider, private options: RuntimeOptions) {
+    this.catalog = options.modelRegistry ?? new ModelRegistry([{ description: {id:'default', name:options.model ?? 'Custom', model:options.model ?? 'custom', provider:options.provider ?? 'custom'}, create: () => provider }]);
     this.agents = new Map((options.agents ?? defaultAgents).map(agent => [agent.id, agent]));
     this.tools = options.tools ?? createTools();
     this.models = new Semaphore(options.concurrency ?? 3); this.executions = new Semaphore(options.concurrency ?? 3);
@@ -63,7 +68,19 @@ export class OrchestratorService {
       for (const question of Object.values(s.questions)) if (question.status === 'pending') question.status = 'cancelled';
     });
   }
-  info() { return { cwd: this.options.workspaceDir, model: this.options.model ?? 'custom', provider: this.options.provider ?? 'custom', defaultAgent: this.options.defaultAgent ?? 'assistant', approvalMode: this.options.approvalMode ?? 'manual' }; }
+  info() { const model = this.catalog.describe(); return { cwd: this.options.workspaceDir, model: model.model, modelId: model.id, provider: model.provider, defaultAgent: this.options.defaultAgent ?? 'assistant', approvalMode: this.options.approvalMode ?? 'manual' }; }
+  listModels() { return this.catalog.list(); }
+  setModel(id: string) {
+    this.catalog.select(id);
+    this.store.change('model.selected', { model: this.catalog.describe() }, () => {});
+    return this.info();
+  }
+  addModel(input: ModelInput) {
+    const model = this.catalog.add(input);
+    this.store.change('model.added', { model }, () => {});
+    return model;
+  }
+
   setApprovalMode(mode: ApprovalMode) {
     if (!approvalModes.includes(mode)) throw new Error('Invalid approval mode');
     this.options.approvalMode = mode;
@@ -104,7 +121,7 @@ export class OrchestratorService {
   private makeTask(objective: string, agentId: string, sessionId: string): Task {
     const id = randomUUID(); return { id, rootId: id, sessionId, objective, agentId, depth: 0, dependsOn: [], status: 'queued', runIds: [], createdAt: new Date().toISOString() };
   }
-  private insertTask(state: State, task: Task, allowedTools?: string[]) {
+  private insertTask(state: State, task: Task, allowedTools?: string[], modelId = this.catalog.selectedId) {
     state.tasks[task.id] = task;
     const definition = structuredClone(this.requireAgent(task.agentId));
     definition.systemPrompt += '\nUse grep/glob to find files, read_file offset/limit to page, apply_patch for exact local edits, read_artifact to page large outputs, ask_user for missing decisions, and todo_write for multi-step plans. Independent read-only calls in the same response can run concurrently; submit dependent calls in separate responses.';
@@ -120,7 +137,7 @@ export class OrchestratorService {
       const lastUser = run?.messages.findLastIndex(message => message.role === 'user' && message.content === t.objective) ?? -1;
       return run && lastUser >= 0 ? run.messages.slice(lastUser) : [{ role: 'user' as const, content: t.objective }, { role: 'assistant' as const, content: t.result ?? '' }];
     });
-    const run: Run = { id: randomUUID(), taskId: task.id, attempt: task.runIds.length + 1, status: 'queued', steps: 0, config: definition,
+    const run: Run = { model: this.catalog.describe(modelId), id: randomUUID(), taskId: task.id, attempt: task.runIds.length + 1, status: 'queued', steps: 0, config: definition,
       messages: [{ role: 'system', content: definition.systemPrompt }, ...history, { role: 'user', content: task.objective }] };
     task.runIds.push(run.id); state.runs[run.id] = run;
   }
@@ -143,7 +160,7 @@ export class OrchestratorService {
     Object.assign(task, { rootId: parent.rootId, parentTaskId: parent.id, depth: parent.depth + 1, dependsOn: [...new Set(input.dependsOn ?? [])] });
     this.store.change('task.created', { parentTaskId: parent.id, objective: task.objective }, s => {
       s.sessions[task.sessionId] = { id: task.sessionId, parentSessionId: parent.sessionId, createdAt: task.createdAt, cwd, workspace, ...(workspace === 'worktree' ? { sourceCwd: parentSession.cwd } : {}) };
-      this.insertTask(s, task, parentRun.config.allowedTools);
+      this.insertTask(s, task, parentRun.config.allowedTools, parentRun.model?.id);
     }, { taskId: task.id });
     this.kick(); return structuredClone(task);
   }
@@ -262,7 +279,7 @@ export class OrchestratorService {
           }, { taskId, runId });
           const run = this.store.snapshot().state.runs[runId]!;
           if (JSON.stringify(run.messages).length > 240000) throw new Error('Context size limit exceeded; start a new session or reduce tool output');
-          for await (const chunk of this.provider.stream(run.messages, this.tools.specs(run.config.allowedTools), signal)) {
+          for await (const chunk of this.catalog.resolve(run.model?.id).stream(run.messages, this.tools.specs(run.config.allowedTools), signal)) {
             signal.throwIfAborted();
             if (chunk.type === 'reasoning') {
               reasoningContent += chunk.text;
@@ -352,7 +369,7 @@ export class OrchestratorService {
             if (budget.stepsUsed >= budget.maxSteps) throw new Error('Model-step budget exhausted');
             budget.stepsUsed++; s.runs[runId]!.steps++;
           }, { taskId, runId });
-          decision = await judgeApproval(this.provider, {
+          decision = await judgeApproval(this.catalog.resolve(run.model?.id), {
             userRequest: state.tasks[task.rootId]!.objective, agentObjective: task.objective,
             workspace, tool: call.name, arguments: args
           }, reviewSignal);

@@ -1,3 +1,4 @@
+import { modelInputSchema } from '../models/registry.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { serveWeb } from './web.js';
 import { timingSafeEqual } from 'node:crypto';
@@ -32,6 +33,7 @@ export async function startServer(runtime: OrchestratorService, options: { host?
     if (req.method === 'GET' && url.pathname === '/health') { send(res, 200, { status: 'ok', version: '0.1.0' }); return; }
     if (req.method === 'GET' && url.pathname === '/v1/snapshot') { send(res, 200, runtime.store.snapshot()); return; }
     if (req.method === 'GET' && url.pathname === '/v1/info') { send(res, 200, runtime.info()); return; }
+    if (req.method === 'GET' && url.pathname === '/v1/models') { send(res, 200, runtime.listModels()); return; }
     if (req.method === 'GET' && url.pathname === '/v1/agents') { send(res, 200, [...runtime.agents.values()]); return; }
     if (req.method === 'GET' && url.pathname === '/v1/events') {
       const cursor = Number(url.searchParams.get('after') ?? req.headers['last-event-id'] ?? 0);
@@ -61,6 +63,8 @@ export async function startServer(runtime: OrchestratorService, options: { host?
     if (req.method === 'POST') {
       if (!req.headers['content-type']?.startsWith('application/json')) { send(res, 415, { error: 'JSON content type required' }); return; }
       const body = await readBody(req);
+      if (url.pathname === '/v1/models') { send(res, 201, runtime.addModel(modelInputSchema.parse(body))); return; }
+      if (url.pathname === '/v1/model') { send(res, 200, runtime.setModel(z.object({id:z.string().min(1)}).strict().parse(body).id)); return; }
       if (url.pathname === '/v1/approval-mode') { send(res, 200, runtime.setApprovalMode(z.object({ mode: z.enum(approvalModes) }).strict().parse(body).mode)); return; }
       if (url.pathname === '/v1/tasks') { send(res, 201, runtime.submit(submitSchema.parse(body))); return; }
       const action = /^\/v1\/tasks\/([^/]+)\/(cancel|retry)$/.exec(url.pathname);

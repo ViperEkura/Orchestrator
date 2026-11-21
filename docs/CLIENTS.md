@@ -47,3 +47,7 @@ New projects use the runtime's loaded provider settings and their own AGENTS.md.
 `npm run test:web` builds the package and runs browser plus exe integration tests with temporary project/data folders and deterministic providers. Browser tests use installed Windows Edge; set `ORCHESTRATOR_BROWSER` to another Chromium executable if necessary. Native tests enable a temporary WebView2 debug port only in their environment. The production launcher does not enable a debug port or expose Node to the UI.
 
 See [Microsoft WebView2 deployment](https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution) for runtime requirements.
+
+## Interface design
+
+See [Interface design](INTERFACE_DESIGN.md) for layout dimensions, colors, responsive behavior, keyboard navigation, focus and shared request flows. Browser and native GUI tests live in `tests/web/`; `npm run test:web` builds the desktop package and runs them.

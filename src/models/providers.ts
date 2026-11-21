@@ -66,7 +66,7 @@ export class CompatibleProvider implements ModelProvider {
   async *stream(messages: Message[], tools: ToolSpec[], signal: AbortSignal): AsyncIterable<ModelChunk> {
     const response = await fetch(`${this.options.baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST', signal,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.options.apiKey}` },
+      headers: { 'Content-Type': 'application/json', ...(this.options.apiKey ? { Authorization: `Bearer ${this.options.apiKey}` } : {}) },
       body: JSON.stringify({ model: this.options.model, stream: true,
         ...(this.options.thinking ? { thinking: { type: this.options.thinking } } : {}),
         ...(this.options.reasoningEffort ? { reasoning_effort: this.options.reasoningEffort } : {}),

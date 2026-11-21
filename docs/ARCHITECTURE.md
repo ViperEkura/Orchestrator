@@ -1,6 +1,6 @@
 # Architecture
 
-The runtime owns execution and persistence. TUI and future web/desktop clients consume the same HTTP/SSE API. There is no UI-specific database.
+The runtime owns execution and persistence. TUI and web/desktop clients consume the same HTTP/SSE API. There is no UI-specific database.
 
 ```mermaid
 classDiagram
@@ -116,3 +116,14 @@ The CLI remains `src/main.ts`; public exports remain in `src/index.ts`. The `orc
 ## Graphical client layer
 
 The React client in `src/web` uses the browser-compatible SDK and SSE stream. The WinForms/WebView2 host in `src/desktop` displays the same assets and owns a bundled local runtime. The storage format and provider integration are shared with the TUI. The transport serves only explicitly allowlisted built assets from `dist/web`.
+
+## Design patterns and current boundaries
+
+- Provider implementations adapt model services behind the injected ModelProvider interface.
+- ModelRegistry lazily creates providers from saved profiles. Each run records its selected profile, and children inherit it; changing the selection affects new turns. Both entry points share configuredModels for profile and credential persistence. Clients only receive public model metadata.
+- ToolRegistry resolves explicit tool commands; capability filtering restricts the available commands per run.
+- StateStore publishes events to HTTP/SSE consumers. This separates execution from rendering. Its journal supports recovery, but the current implementation still clones whole state during changes.
+- OrchestratorClient is the shared transport facade for TUI, browser and desktop interfaces.
+- UI components use composition. Shared approval options live in ui/options.ts; the TUI editor, questions and workspace panels own their local interaction logic.
+
+The architecture is not fully decomposed: OrchestratorService still combines scheduling and run execution, and both main UI components coordinate several states. Follow-up refactoring should extract a scheduler and explicit UI transitions when those responsibilities evolve. Do not introduce a class or factory for each conditional solely to match a named pattern. The current TUI parity work does not claim to implement distributed workers or a formal UI state machine.

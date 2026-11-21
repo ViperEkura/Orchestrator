@@ -1,5 +1,5 @@
 import { readSSE, pause } from './sse.js';
-import type { AgentDefinition, ApprovalMode, Run, RuntimeEvent, Snapshot, SubmitInput, Task } from '../core/domain.js';
+import type { AgentDefinition, ModelDescriptor, ModelInput, ApprovalMode, Run, RuntimeEvent, Snapshot, SubmitInput, Task } from '../core/domain.js';
 
 export class OrchestratorClient {
   constructor(readonly url: string, private token?: string) {}
@@ -12,8 +12,11 @@ export class OrchestratorClient {
     if (!response.ok) throw new Error((data as { error?: string }).error ?? `HTTP ${response.status}`);
     return data as T;
   }
-  info(): Promise<{ cwd: string; model: string; provider: string; defaultAgent: string; approvalMode: ApprovalMode }> { return this.request('/v1/info'); }
+  info(): Promise<{ cwd: string; model: string; modelId?: string; provider: string; defaultAgent: string; approvalMode: ApprovalMode }> { return this.request('/v1/info'); }
   setApprovalMode(mode: ApprovalMode): ReturnType<OrchestratorClient['info']> { return this.request('/v1/approval-mode', { mode }); }
+  models(): Promise<ModelDescriptor[]> { return this.request('/v1/models'); }
+  setModel(id: string): ReturnType<OrchestratorClient['info']> { return this.request('/v1/model', {id}); }
+  addModel(profile: ModelInput): Promise<ModelDescriptor> { return this.request('/v1/models', profile); }
   agents(): Promise<AgentDefinition[]> { return this.request('/v1/agents'); }
   artifact(id: string, offset = 0): Promise<{ content: string; total: number; nextOffset: number | null }> { return this.request(`/v1/artifacts/${encodeURIComponent(id)}?offset=${offset}`); }
   snapshot(): Promise<Snapshot> { return this.request('/v1/snapshot'); }

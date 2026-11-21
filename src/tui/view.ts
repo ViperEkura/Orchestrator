@@ -3,8 +3,8 @@ import stringWidth from 'string-width';
 import { renderMarkdown } from './markdown.js';
 import type { Approval, State, Task } from '../core/domain.js';
 
-export type View = 'Chat' | 'History' | 'Sessions' | 'Agents' | 'Approvals' | 'Questions';
-export const views: View[] = ['Chat', 'History', 'Sessions', 'Agents', 'Approvals', 'Questions'];
+export type View = 'Chat' | 'History' | 'Sessions' | 'Agents' | 'Approvals' | 'Questions' | 'Team' | 'Settings' | 'Outputs' | 'Models';
+export const views: View[] = ['Chat', 'History', 'Sessions', 'Agents', 'Approvals', 'Questions', 'Team', 'Settings', 'Outputs', 'Models'];
 export type Line = { text: string; color?: string; bold?: boolean; selected?: boolean; turnId?: string; turnLine?: number; disclosureId?: string };
 export const clean = (text: string) => text.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
 export const short = (id: string) => id.slice(0, 8);
@@ -24,7 +24,7 @@ export function transcript(state: State | undefined, sessionId: string | undefin
     add('YOU', 'cyan', true); add(task.objective); add('');
     for (const runId of task.runIds) {
       const run = state.runs[runId]; if (!run) continue;
-      add(`${run.config.name.toUpperCase()} · ${run.status}${run.attempt > 1 ? ` · attempt ${run.attempt}` : ''}`, statusColor(run.status), true);
+      add(`${run.config.name.toUpperCase()} · ${run.status}${run.model ? ' · ' + run.model.name : ''}${run.attempt > 1 ? ` · attempt ${run.attempt}` : ''}`, statusColor(run.status), true);
       // Match the actual user turn, excluding context copied from older turns.
       const start = run.messages.findLastIndex(message => message.role === 'user' && message.content === task.objective);
       const disclosure = (id: string, name: string, status: string, summary: string, body: () => string, color = 'gray') => {

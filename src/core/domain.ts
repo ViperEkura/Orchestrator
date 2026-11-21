@@ -24,6 +24,7 @@ export interface Task {
   status: Status; runIds: string[]; result?: string; error?: string; createdAt: string;
 }
 export interface Run {
+  model?: ModelDescriptor;
   id: string; taskId: string; attempt: number; status: Status; steps: number;
   messages: Message[]; config: AgentDefinition; startedAt?: string; finishedAt?: string;
 }
@@ -50,4 +51,6 @@ export type ModelChunk = { type: 'text'; text: string } | { type: 'reasoning'; t
 export interface ModelProvider {
   stream(messages: Message[], tools: ToolSpec[], signal: AbortSignal): AsyncIterable<ModelChunk>;
 }
+export interface ModelDescriptor { id: string; name: string; model: string; provider: string }
+export interface ModelInput { name?: string; baseUrl: string; model: string; apiKey: string }
 export interface SubmitInput { cwd?: string; delegations?: DelegationPlan[]; objective: string; agentId?: string; sessionId?: string }

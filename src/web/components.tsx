@@ -9,7 +9,7 @@ export function Icon({ name, size = 19 }: {name: string; size?: number}) {
     new: <><path d="M12 5H5v14h14v-7"/><path d="m10 14 1-4L19 2l3 3-8 8-4 1Z"/></>,
     panel: <><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></>,
     folder: <path d="M3 7V5h7l2 3h9v12H3Z"/>, search: <><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></>,
-    plus: <path d="M12 4v16M4 12h16"/>, close: <path d="m6 6 12 12M6 18 12-12"/>,
+    plus: <path d="M12 4v16M4 12h16"/>, close: <path d="M6 6l12 12M6 18L18 6"/>,
     send: <path d="m5 11 7-7 7 7M12 4v16"/>, down: <path d="m6 9 6 6 6-6"/>, stop: <rect x="6" y="6" width="12" height="12" rx="2"/>,
     settings: <><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/></>,
     agent: <><rect x="4" y="7" width="16" height="13" rx="4"/><path d="M12 3v4M8 12v2M16 12v2M9 17h6"/></>,
@@ -25,16 +25,20 @@ export function IconButton({ label, name, onClick, active = false }: {label: str
 }
 export function Modal({ title, children, onClose }: {title: string; children: ReactNode; onClose: () => void}) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => { const dialog = ref.current!; dialog.showModal(); return () => dialog.close(); }, []);
+  useEffect(() => {
+    const dialog = ref.current!, previous = document.activeElement;
+    dialog.showModal();
+    return () => { dialog.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
+  }, []);
   return <dialog ref={ref} onCancel={e => { e.preventDefault(); onClose(); }} aria-label={title}><header><h2>{title}</h2><IconButton label="Close dialog" name="close" onClick={onClose}/></header>{children}</dialog>;
 }
-export function Markdown({ source }: {source: string}) {
+export const Markdown = React.memo(function Markdown({ source }: {source: string}) {
   const html = useMemo(() => DOMPurify.sanitize(marked.parse(source, { gfm: true, breaks: true, async: false }), {
     ALLOWED_TAGS: ['p','br','strong','em','del','h1','h2','h3','h4','h5','h6','ul','ol','li','blockquote','pre','code','table','thead','tbody','tr','th','td','hr','a'],
     ALLOWED_ATTR: ['href','title','start','align']
   }).replace(/<a /g, '<a target="_blank" rel="noopener noreferrer" '), [source]);
   return <div className="markdown" dangerouslySetInnerHTML={{__html:html}}/>;
-}
+});
 export const parse = (value: string): Record<string, unknown> => { try { const data: unknown = JSON.parse(value); return data && typeof data === 'object' ? data as Record<string, unknown> : {}; } catch { return {}; } };
 const pretty = (value: string) => { try { return JSON.stringify(JSON.parse(value), null, 2); } catch { return value; } };
 export function Disclosure({ label, preview, failed, children }: {label: string; preview: string; failed?: boolean; children: ReactNode}) {
@@ -42,7 +46,7 @@ export function Disclosure({ label, preview, failed, children }: {label: string;
 }
 export function RunMessages({ task, run, state, live }: {task: Task; run: Run; state: State; live?: LiveMessage}) {
   const start = run.messages.findLastIndex(m => m.role === 'user' && m.content === task.objective);
-  return <>{run.attempt > 1 && <p className="muted">Attempt {run.attempt}</p>}{run.messages.slice(start + 1).map((message, i) => <React.Fragment key={i}>
+  return <>{run.model && <div className="run-model">{run.model.name}</div>}{run.attempt > 1 && <p className="muted">Attempt {run.attempt}</p>}{run.messages.slice(start + 1).map((message, i) => <React.Fragment key={i}>
     {message.reasoningContent && <Disclosure label="Thinking" preview={message.reasoningContent}><pre>{message.reasoningContent}</pre></Disclosure>}
     {message.role === 'assistant' && message.content && <Markdown source={message.content}/>}
     {message.toolCalls?.map(call => {

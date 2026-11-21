@@ -43,3 +43,15 @@ Source layout refactor: type checking, all 54 tests and production build passed.
 Coding-tool update: all 64 tests, type checking and production build passed. New integration checks cover bundled-ripgrep search/exclusions, Windows canonical paths, symlink rejection, paged large-file reads, CRLF-preserving exact edits, parallel reads with write barriers, ordered error results, question answers/cancellation/recovery/deadlines, task plans, cross-session artifact rejection, complete 40k-character command output, role upgrades and table row separators. Question-card choices, custom text, drafts and narrow-terminal paging are exercised through Ink input streams.
 
 Graphical client update: 64 runtime/TUI tests passed; browser integration covers streaming, Markdown sanitization, approvals, questions, teams, projects, cancellation, output paging, history and responsive layout. The packaged Windows exe is separately exercised for startup, messaging, reload and clean shutdown. Test data is isolated; no paid model calls are made.
+
+## Interface refresh — 2026-11-22
+
+Type checking and the Windows package build passed. All 68 Node/Ink tests and 6 Playwright browser/native tests passed. Added coverage for grapheme-aware cursor editing, multiline paste, per-session drafts, compact navigation, empty search results and dialog focus restoration. Desktop (1440 px) and compact (390 px) screenshots were reviewed. Browser tests now live under tests/web/. Initial sandbox-only localhost and junction failures passed when rerun with the required execution permissions.
+
+## TUI/client parity — 2026-11-22
+
+Build and type checking passed. All 71 Node/Ink tests and 8 browser/native tests passed. New coverage exercises grouped projects, project-specific submissions, registered agent selection, approval mode changes, output paging, parent navigation and 50 × 18 terminal bounds. Backspace (DEL) and forward Delete are tested separately through Ink input handling.
+
+## Custom models — 2026-11-22
+
+Type checking, production build and Windows packaging passed. All 75 Node/Ink tests and 9 browser/native tests passed. Coverage includes per-run model pinning, child inheritance, profile persistence, project selection scope, separate credential storage, environment credentials, masked TUI input and browser add/select flows. The final key-input adjustment passed its targeted TUI test. The model picker screenshot was reviewed. These checks use local test providers; custom remote endpoints were not contacted.
