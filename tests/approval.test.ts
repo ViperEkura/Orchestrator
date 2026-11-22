@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { OrchestratorService } from '../src/core/runtime.js';
 import { StateStore } from '../src/storage/store.js';
 import { ToolRegistry } from '../src/tools/index.js';
-import { completeInput } from '../src/tui/completions.js';
+import { completeInput } from '../src/clients/tui/completions.js';
 import type { ApprovalMode, ModelProvider } from '../src/core/domain.js';
 
 async function until(predicate: () => boolean) {

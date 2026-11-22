@@ -1,3 +1,4 @@
+import { taskPolicyShape } from '../core/tasks/schema.js';
 import { modelInputSchema } from '../models/registry.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { serveWeb } from './web.js';
@@ -6,8 +7,8 @@ import { z } from 'zod';
 import { approvalModes } from '../core/domain.js';
 import type { OrchestratorService } from '../core/runtime.js';
 
-const delegationSchema = z.object({ agentId: z.string(), objective: z.string().trim().min(1).max(16000), workspace: z.enum(['read-only', 'worktree']).optional(), after: z.array(z.number().int().nonnegative()).max(16).optional() }).strict();
-const submitSchema = z.object({ cwd: z.string().min(1).max(4096).optional(), delegations: z.array(delegationSchema).min(1).max(16).optional(), objective: z.string().trim().min(1).max(16000), agentId: z.string().optional(), sessionId: z.string().uuid().optional() }).strict();
+const delegationSchema = z.object({ ...taskPolicyShape, agentId: z.string(), objective: z.string().trim().min(1).max(16000), workspace: z.enum(['read-only', 'worktree']).optional(), after: z.array(z.number().int().nonnegative()).max(256).optional() }).strict();
+const submitSchema = z.object({ ...taskPolicyShape, cwd: z.string().min(1).max(4096).optional(), delegations: z.array(delegationSchema).min(1).max(256).optional(), objective: z.string().trim().min(1).max(16000), agentId: z.string().optional(), sessionId: z.string().uuid().optional() }).strict();
 const decisionSchema = z.object({ decision: z.enum(['approved', 'denied']) }).strict();
 const loopback = (host: string) => ['127.0.0.1', 'localhost', '::1'].includes(host);
 
@@ -35,6 +36,7 @@ export async function startServer(runtime: OrchestratorService, options: { host?
     if (req.method === 'GET' && url.pathname === '/v1/info') { send(res, 200, runtime.info()); return; }
     if (req.method === 'GET' && url.pathname === '/v1/models') { send(res, 200, runtime.listModels()); return; }
     if (req.method === 'GET' && url.pathname === '/v1/agents') { send(res, 200, [...runtime.agents.values()]); return; }
+    if (req.method === 'GET' && url.pathname === '/v1/agent-sessions') { send(res,200,runtime.listAgentSessions(url.searchParams.get('parentSessionId') ?? undefined)); return; }
     if (req.method === 'GET' && url.pathname === '/v1/events') {
       const cursor = Number(url.searchParams.get('after') ?? req.headers['last-event-id'] ?? 0);
       if (!Number.isSafeInteger(cursor) || cursor < 0) { send(res, 400, { error: 'Invalid event cursor' }); return; }
@@ -67,6 +69,43 @@ export async function startServer(runtime: OrchestratorService, options: { host?
       if (url.pathname === '/v1/model') { send(res, 200, runtime.setModel(z.object({id:z.string().min(1)}).strict().parse(body).id)); return; }
       if (url.pathname === '/v1/approval-mode') { send(res, 200, runtime.setApprovalMode(z.object({ mode: z.enum(approvalModes) }).strict().parse(body).mode)); return; }
       if (url.pathname === '/v1/tasks') { send(res, 201, runtime.submit(submitSchema.parse(body))); return; }
+      const conversation = /^\/v1\/conversations\/([^/]+)$/.exec(url.pathname);
+      if (conversation) {
+        const id = z.string().uuid().parse(conversation[1]);
+        const action = z.discriminatedUnion('action',[
+          z.object({action:z.literal('rename'),title:z.string().trim().min(1).max(160)}).strict(),
+          z.object({action:z.literal('pin'),value:z.boolean()}).strict(),
+          z.object({action:z.literal('move'),folder:z.enum(['inbox','archive','trash'])}).strict()
+        ]).parse(body);
+        runtime.store.transaction({sessions:[id]}, 'conversation.updated', {}, state => {
+          const session = state.sessions[id];
+          if (!session || session.parentSessionId) throw new Error('Unknown conversation');
+          if (action.action === 'rename') session.title = action.title;
+          else if (action.action === 'pin') session.pinned = action.value;
+          else session.folder = action.folder;
+        }, {sessionId:id});
+        send(res,200,{ok:true}); return;
+      }
+      const agentAction = /^\/v1\/agent-sessions\/([^/]+)\/(followup|message|close)$/.exec(url.pathname);
+      if (agentAction) {
+        const sessionId=agentAction[1]!;
+        if (agentAction[2]==='followup') { const value=z.object({...taskPolicyShape,objective:z.string().trim().min(1).max(16000),dependsOn:z.array(z.string()).max(256).optional()}).strict().parse(body); send(res,201,runtime.followup({...value,sessionId})); }
+        else if (agentAction[2]==='message') { const value=z.object({content:z.string().trim().min(1).max(16000),id:z.string().uuid().optional()}).strict().parse(body);send(res,201,runtime.sendAgentMessage(sessionId,value.content,undefined,value.id)); }
+        else { z.object({}).strict().parse(body);send(res,200,runtime.closeAgent(sessionId)); }
+        return;
+      }
+      const control=/^\/v1\/tasks\/([^/]+)\/(pause|dependencies|message|review|verify|integrate|apply)$/.exec(url.pathname);
+      if(control){
+        const id=control[1]!;
+        if(control[2]==='integrate'){const value=z.object({testCommand:z.string().min(1).max(8000)}).strict().parse(body);send(res,200,await runtime.integrations.prepare(id,value.testCommand));return;}
+        if(control[2]==='apply'){z.object({}).strict().parse(body);send(res,200,await runtime.integrations.apply(id));return;}
+        if(control[2]==='pause')runtime.pause(id,z.object({paused:z.boolean()}).strict().parse(body).paused);
+        if(control[2]==='dependencies'){const value=z.object({dependsOn:z.array(z.string()).max(256),priority:taskPolicyShape.priority}).strict().parse(body);runtime.updateDependencies(id,value.dependsOn,value.priority);}
+        if(control[2]==='message'){const value=z.object({content:z.string().min(1).max(16000),id:z.string().uuid().optional()}).strict().parse(body);send(res,201,runtime.sendMessage(id,value.content,undefined,value.id));return;}
+        if(control[2]==='review'){const value=z.object({decision:z.enum(['accepted','rejected']),note:z.string().min(1).max(4000)}).strict().parse(body);runtime.reviewTask(id,value.decision,value.note);}
+        if(control[2]==='verify'){const value=z.object({callId:z.string().min(1),content:z.string().min(1).max(24000)}).strict().parse(body);runtime.resolveOperation(id,value.callId,value.content);}
+        send(res,200,{ok:true});return;
+      }
       const action = /^\/v1\/tasks\/([^/]+)\/(cancel|retry)$/.exec(url.pathname);
       if (action) {
         z.object({}).strict().parse(body);

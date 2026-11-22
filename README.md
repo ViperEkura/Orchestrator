@@ -163,10 +163,11 @@ src/
   models/              Demo and compatible model providers
   tools/               Tool registry and built-in tools
   transport/           HTTP server, client SDK, shared SSE parser
-  tui/                 App, editor, project/team/settings/output panels, transcript
-  ui/                  Shared client labels and approval choices
-  web/                 Browser and desktop interface
-  desktop/             Native Windows host
+  clients/
+    tui/               App, editor, project/team/settings/output panels, transcript
+    shared/            Shared client labels and approval choices
+    web/               Browser and desktop interface
+    desktop/           Native Windows host
 ```
 
 The CLI remains `src/main.ts`; public exports remain in `src/index.ts`. The `orchestrator/client` package export resolves to `transport/client`. Tests stay in `tests/` and import the relevant modules directly.
@@ -178,3 +179,7 @@ Built-in `grep`, `glob`, recursive listing, paged reads, exact edits, recoverabl
 Run `npm run desktop` for an native Windows app, or `npm run web` and open the printed local URL. Both share your existing runtime, conversations, approvals and agents. See [Desktop and web clients](docs/CLIENTS.md) for launch options and scope.
 
 Model profiles can be added and selected in both clients, including custom Chat Completions URLs and API keys. See [Model configuration and switching](docs/MODELS.md). Running tasks retain their original model; selections apply to new turns.
+
+## Multi-agent task control
+
+See [multi-agent execution](docs/SWARM.md) for task graphs, recovery, targeted messages, budgets and verified Git integration. Open `/tasks` in the TUI or **Tasks** in the graphical client.

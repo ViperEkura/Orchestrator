@@ -55,3 +55,11 @@ Build and type checking passed. All 71 Node/Ink tests and 8 browser/native tests
 ## Custom models — 2026-11-22
 
 Type checking, production build and Windows packaging passed. All 75 Node/Ink tests and 9 browser/native tests passed. Coverage includes per-run model pinning, child inheritance, profile persistence, project selection scope, separate credential storage, environment credentials, masked TUI input and browser add/select flows. The final key-input adjustment passed its targeted TUI test. The model picker screenshot was reviewed. These checks use local test providers; custom remote endpoints were not contacted.
+
+## Multi-agent execution — 2026-11-22
+
+Type checking, production build and Windows packaging passed. All 88 Node/Ink tests and 10 browser/native tests passed. A final targeted scale check ran 50 delegated tasks with real JSONL persistence, bounded concurrency, dependency ordering and exact reopen/replay equality (about 3.3 seconds on this machine with a deterministic provider; not an external-model throughput benchmark).
+
+New coverage includes scoped transaction rollback, root fairness, paused dispatch, dependency cycles, idempotent targeted messages, acceptance gates, shared/per-profile limits, token-budget exhaustion, abortable rate waits, pending-approval recovery, stale execution generations, uncertain external effects, completed-tool receipts and late messages before task finalization. Real temporary Git repositories exercise isolated integration, failed verification, stale target rejection and explicit fast-forward application. TUI task controls and browser acceptance controls run against their respective interfaces; desktop and 390 px layouts were checked. No paid model calls were used. Remote workers and distributed failover were not tested or implemented.
+
+Reusable-agent validation: 103 Node/Ink tests passed, including idle persistence and restart, queued-message delivery, late messages during final output, role/permission preservation, follow-up budgets across parent turns, recursive close, and TUI continuation/navigation. All 11 browser/native-client checks passed, including idle child follow-up, close and Parent navigation. The Windows package is rebuilt from the reorganized source. Providers in these tests are deterministic; no external model quality or remote-worker scalability is claimed.

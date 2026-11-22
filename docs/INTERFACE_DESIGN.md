@@ -65,7 +65,7 @@ only keyboard focus adds a subtle outline. There are no decorative dividers betw
 
 ### Palette
 
-CSS tokens are defined in `src/web/style.css`.
+CSS tokens are defined in `src/clients/web/style.css`.
 
 | Token | Value | Purpose |
 | --- | --- | --- |
@@ -185,7 +185,7 @@ across application restarts. Typing does not rebuild an unchanged transcript.
 | Open a directory | Add project dialog | Ctrl+A in project tree or /project path |
 | Choose next-turn agents | Agents picker | Ctrl+L, Space, Enter |
 | Select approval mode | Themed popover | Ctrl+S or /approval, arrows, Enter |
-| Inspect agent conversations | Details panel | Ctrl+T; Ctrl+B returns to parent |
+| Inspect agent conversations | Details panel | Ctrl+T; Esc returns to parent |
 | Saved outputs | Details, paged output dialog | Ctrl+U, Enter, L for next page |
 | Copy response / output | Clipboard buttons | /copy, or C in output viewer; OSC 52 required |
 | Stop and retry | Composer stop / response retry | /cancel and /retry with ID completion |
@@ -216,18 +216,18 @@ raw in storage and is rendered separately by each client. Math rendering is outs
 
 | Responsibility | Files |
 | --- | --- |
-| Terminal orchestration and focus | `src/tui/app.tsx` |
-| Shared approval choices and project labels | `src/ui/options.ts` |
-| Terminal project/team/settings/output panels | `src/tui/workspace-panel.tsx` |
-| Terminal input compatibility | `src/tui/input.ts` |
-| Terminal editor and cursor layout | `src/tui/editor.ts`, `src/tui/composer.tsx` |
-| Terminal transcript / Markdown | `src/tui/view.ts`, `src/tui/markdown.ts` |
-| Browser layout and local UI state | `src/web/app.tsx` |
-| Browser shared components | `src/web/components.tsx` |
-| Browser visual rules | `src/web/style.css` |
-| Model profile selection and custom endpoint forms | `src/web/model-picker.tsx`, `src/tui/model-panel.tsx` |
-| Runtime subscription | `src/web/runtime.ts` |
-| Native host | `src/desktop/Orchestrator.cs` |
+| Terminal orchestration and focus | `src/clients/tui/app.tsx` |
+| Shared approval choices and project labels | `src/clients/shared/options.ts` |
+| Terminal project/team/settings/output panels | `src/clients/tui/workspace-panel.tsx` |
+| Terminal input compatibility | `src/clients/tui/input.ts` |
+| Terminal editor and cursor layout | `src/clients/tui/editor.ts`, `src/clients/tui/composer.tsx` |
+| Terminal transcript / Markdown | `src/clients/tui/view.ts`, `src/clients/tui/markdown.ts` |
+| Browser layout and local UI state | `src/clients/web/app.tsx` |
+| Browser shared components | `src/clients/web/components.tsx` |
+| Browser visual rules | `src/clients/web/style.css` |
+| Model profile selection and custom endpoint forms | `src/clients/web/model-picker.tsx`, `src/clients/tui/model-panel.tsx` |
+| Runtime subscription | `src/clients/web/runtime.ts` |
+| Native host | `src/clients/desktop/Orchestrator.cs` |
 
 ## Validation and remaining work
 
@@ -243,3 +243,21 @@ a 390 px viewport, and a narrow terminal with completions or a request open.
 Remaining improvements: source-position scroll anchors across terminal reflow, visual-row vertical
 cursor movement for soft wraps, persistent draft recovery, long-history virtualization, and a
 unified reconnect/state reducer. These are follow-up work, not implied by this interface refresh.
+
+## Project task board
+
+TUI `/tasks` and graphical **Tasks** expose project-scoped task status, dependencies, model-step/token usage and controls. The main chat remains a single result stream. Open a task to inspect its transcript; messages are targeted to that task. Pausing dispatch does not stop in-flight tools. Result review and uncertain-operation verification require an explicit note. Integration preparation and application are distinct actions, with the test command and resulting worktree visible. Neither approval mode nor task completion implies that a merge passed verification.
+
+## Live sub-agent progress
+
+Parent turns show compact child-agent rows with current reasoning/output previews, tool activity, waiting reasons and final results. Up to six children are shown initially; use Show all agents or Ctrl+T for the full team. Agent rows use ↗ to indicate navigation; ▸/▾ are reserved for expandable records. Click a child row, or select it with arrows and Enter in Ctrl+T, to open its live conversation. Esc returns directly to the parent and restores its draft, even while command suggestions are open. Ctrl+B is also supported. The /tasks board uses the same activity previews. Failed/interrupted agents are red; other activity rows remain gray.
+
+Child activity stays at the delegation message in the conversation timeline; progress updates replace that row in place. Preconfigured teams appear before the parent starts its own work. Later delegation waves stay separate, and completed agents do not move beneath the final answer. Older records use delegation tool results to recover their position when available.
+
+Reusable agents are session navigation targets, not expandable records. Show the session lifecycle separately from individual task outcomes. The composer says “Assign next task” while idle and “Message this agent” while active. Closing retains history. TUI uses Esc to return; Web/desktop has Parent and Close agent controls. Mailbox messages appear at their delivery position in the conversation.
+
+### Conversation actions
+
+In the web and desktop sidebar, hover or focus a conversation to reveal its **⋯** menu, or right-click the row. Touch screens always show the menu button. Rename updates the sidebar and chat heading. Pin puts the conversation first within its project.
+
+Archive moves the conversation to **Archived**. Delete asks for confirmation and moves it to **Trash**, where its transcript is read-only in the client. Choose **Restore to project** in either view to return the conversation to its project. Both actions preserve turns, child agents and outputs. Folder links appear at the bottom of the sidebar when they have content.

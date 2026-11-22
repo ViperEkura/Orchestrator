@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { rgPath } from '@vscode/ripgrep';
 import { safePath } from './paths.js';
-import type { ToolRegistry } from './index.js';
+import type { ToolRegistry } from './registry.js';
 
 const exec = promisify(execFile);
 const ignored = new Set(['.git', 'node_modules', '.orchestrator']);

@@ -38,9 +38,9 @@ New projects use the runtime's loaded provider settings and their own AGENTS.md.
 
 ## Code and verification
 
-- `src/web/`: React UI, sanitized Markdown, styling and SDK/SSE integration.
-- `src/desktop/Orchestrator.cs`: native window, WebView2 and backend lifecycle.
-- `src/desktop/server.ts`: packaged runtime entry.
+- `src/clients/web/`: React UI, sanitized Markdown, styling and SDK/SSE integration.
+- `src/clients/desktop/Orchestrator.cs`: native window, WebView2 and backend lifecycle.
+- `src/clients/desktop/server.ts`: packaged runtime entry.
 - `scripts/package-desktop.ps1`, `scripts/bundle-desktop.mjs`: Windows build and resources.
 - `src/transport/web.ts`: allowlisted static assets, no project/configuration file serving.
 

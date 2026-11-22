@@ -14,7 +14,7 @@ The design references [Pi's transcript/editor/footer](https://github.com/badlogi
 | Choose or add model profiles | `/models` or `/model` |
 | Settings and approval mode menu | Ctrl+S, `/settings` or `/approval` without arguments |
 | Browse saved outputs | Ctrl+U or `/outputs` |
-| Return from a child to its parent | Ctrl+B or `/back` |
+| Return from a child to its parent | Esc, Ctrl+B or `/back` |
 | Copy latest response | `/copy` (requires OSC 52 terminal clipboard support) |
 | Inspect task tree and child conversations | Ctrl+T or `/agents` |
 | Review pending tool requests | Ctrl+O or `/approvals` |
@@ -67,3 +67,17 @@ The agent picker loads configured roles from the runtime. Space toggles members,
 Settings use the same three approval choices and explanations as the graphical client. Provider and model are displayed. `/models` opens model selection; A opens the custom URL, model ID and API key form. See [Models](MODELS.md). Outputs are scoped to the current conversation and its agents: Enter opens, PageUp/PageDown or the wheel scrolls, L loads the next page, C requests copying the loaded content, and Esc returns. OSC 52 copying depends on terminal support and permissions; unsupported terminals can use normal text selection.
 
 Chat drafts survive project/session browsing, team selection, settings and output inspection. A failed submission restores the submitted draft. New chat starts a fresh draft for the selected project. The terminal input adapter distinguishes DEL/backspace from the forward Delete escape sequence used by Ink 6.
+
+## Project task board
+
+`/tasks` opens the shared task board. Use arrows and Enter to open a task, P to pause/resume dispatch, M to send a targeted message, C to cancel, Y/N to accept/reject with a note, V to verify an interrupted tool, I to prepare/test integration and F to apply a verified integration. See [multi-agent execution](SWARM.md).
+
+## Live sub-agent progress
+
+Parent turns show compact child-agent rows with current reasoning/output previews, tool activity, waiting reasons and final results. Up to six children are shown initially; use Show all agents or Ctrl+T for the full team. Agent rows use ↗ to indicate navigation; ▸/▾ are reserved for expandable records. Click a child row, or select it with arrows and Enter in Ctrl+T, to open its live conversation. Esc returns directly to the parent and restores its draft, even while command suggestions are open. Ctrl+B is also supported. The /tasks board uses the same activity previews. Failed/interrupted agents are red; other activity rows remain gray.
+
+Child agents use independent sessions: opening an agent shows only its delegated task, messages, reasoning and tool records. The header reads AGENT CHAT and the initial request reads DELEGATED TASK. Parent conversation history is not inherited. Drafts stay with their own session; Esc returns to the parent.
+
+Child activity stays at the delegation message in the conversation timeline; progress updates replace that row in place. Preconfigured teams appear before the parent starts its own work. Later delegation waves stay separate, and completed agents do not move beneath the final answer. Older records use delegation tool results to recover their position when available.
+
+Reusable child sessions show idle, running, waiting or closed. Typing in an idle child chat starts its next task with retained context; typing while busy queues a message. `/close-agent` closes that session and its descendants. Ctrl+T lists the latest task per session across assignments. Esc follows the persistent parent-session link and restores the parent draft.

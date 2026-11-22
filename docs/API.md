@@ -61,3 +61,29 @@ Errors use `{ "error": "..." }`: schema validation 400, authentication 401, host
 ## Model profiles
 
 GET /v1/models lists public profiles. POST /v1/models accepts { name?, baseUrl, model, apiKey } and stores credentials separately. POST /v1/model selects { id }; GET /v1/info includes modelId. Selections are persisted; running and queued tasks retain their recorded model. See [Models](MODELS.md) for scope and credentials.
+
+## Task control
+
+Task submission/delegation supports priority, acceptanceCriteria, requiredCapabilities, inputArtifactIds, modelId and reviewRequired. Plans support up to 256 entries, subject to the configured root budget.
+
+| POST route | Body |
+| --- | --- |
+| /v1/tasks/:id/pause | {paused: boolean} (root only) |
+| /v1/tasks/:id/dependencies | {dependsOn: string[], priority?: number} (undispatched tasks) |
+| /v1/tasks/:id/message | {content: string, id?: UUID} |
+| /v1/tasks/:id/review | {decision: accepted or rejected, note: string} |
+| /v1/tasks/:id/verify | {callId: string, content: string} (verified external result) |
+| /v1/tasks/:id/integrate | {testCommand: string} (completed writable child) |
+| /v1/tasks/:id/apply | {} (verified integration) |
+
+The SDK exposes pause, dependencies, message, review, verify, integrate and applyIntegration. Integration requests can take longer than ordinary API calls. All routes retain origin/authentication checks. See [SWARM.md](SWARM.md) for operation semantics.
+
+## Reusable agent sessions
+
+- GET /v1/agent-sessions?parentSessionId=... returns sessionId, parentSessionId, agentId, status, taskId, taskStatus and pendingMessages. Status is idle, running, waiting or closed; taskStatus preserves the assignment outcome.
+- POST /v1/agent-sessions/:id/followup accepts objective, task policy fields and optional dependsOn. Returns a new Task. Busy or closed sessions return a conflict.
+- POST /v1/agent-sessions/:id/message accepts content and an optional UUID id for idempotent delivery. Queuing a message does not wake an idle session.
+- POST /v1/agent-sessions/:id/close takes an empty object, closes descendant sessions, cancels active tasks and retains history.
+- POST /v1/tasks with a child sessionId also applies follow-up validation; it cannot change the child's role or workspace.
+
+SDK methods: agentSessions, followup, agentMessage, closeAgent. Model tools: list_agents, followup_task, close_agent and send_message (exactly one of taskId or sessionId). delegate_task returns both taskId and sessionId.

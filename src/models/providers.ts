@@ -85,10 +85,11 @@ export class CompatibleProvider implements ModelProvider {
     for await (const payload of readSSE(response.body)) {
       signal.throwIfAborted();
       if (payload === '[DONE]') { finished = true; break; }
-      const packet = JSON.parse(payload) as { error?: unknown; choices?: { finish_reason?: string | null; delta?: {
+      const packet = JSON.parse(payload) as { error?: unknown; usage?: {prompt_tokens?: number;completion_tokens?: number}; choices?: { finish_reason?: string | null; delta?: {
         content?: string; reasoning_content?: string; tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[];
       } }[] };
       if (packet.error) throw new Error('Provider reported a streaming error');
+      if(packet.usage)yield {type:'usage',inputTokens:packet.usage.prompt_tokens??0,outputTokens:packet.usage.completion_tokens??0};
       const choice = packet.choices?.[0];
       if (choice?.finish_reason === 'length') throw new Error('Model output truncated by token limit');
       if (choice?.finish_reason === 'content_filter') throw new Error('Model output blocked by provider');

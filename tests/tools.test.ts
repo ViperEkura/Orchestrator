@@ -1,6 +1,7 @@
+import { legacyAgentPrompts } from '../src/core/agents/definitions.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, symlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, symlink, rm, stat, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
@@ -92,14 +93,14 @@ test('ask_user waits even in allow-all mode, leaves slots free, persists answers
   } finally {await server.close();await runtime.close();store.close();await rm(dir,{recursive:true,force:true});}
 });
 
-test('cancel and restart invalidate unanswered questions', async () => {
+test('restart preserves checkpointed questions while cancellation invalidates them', async () => {
   const dir=await mkdtemp(join(tmpdir(),'orchestrator-cancel-question-'));const store=new StateStore(':memory:');
   const provider:ModelProvider={async *stream(){yield {type:'tool',call:{id:'ask',name:'ask_user',arguments:'{"question":"Continue?"}'}};}};
   const runtime=new OrchestratorService(store,provider,{workspaceDir:dir});
   try {
     const task=runtime.submit({objective:'question'});await until(()=>Object.keys(store.snapshot().state.questions).length>0);const id=Object.keys(store.snapshot().state.questions)[0]!;
     const crash=new StateStore(':memory:');crash.change('seed',{},s=>Object.assign(s,store.snapshot().state));const recovered=new OrchestratorService(crash,provider,{workspaceDir:dir});
-    assert.equal(crash.snapshot().state.questions[id]!.status,'cancelled');await recovered.close();crash.close();
+    try { assert.equal(crash.snapshot().state.questions[id]!.status,'pending'); } finally { await recovered.close();crash.close(); }
     runtime.cancel(task.id);assert.equal((await runtime.waitUntilDone(task.id)).status,'cancelled');assert.equal(store.snapshot().state.questions[id]!.status,'cancelled');assert.throws(()=>runtime.answerQuestion(id,'yes'),/not pending/);
   } finally {await runtime.close();store.close();await rm(dir,{recursive:true,force:true});}
 });
@@ -126,9 +127,14 @@ test('long command output is retained as an artifact and can be read back', asyn
 test('pristine built-in role files upgrade while customized allowlists stay unchanged', async () => {
   const dir=await mkdtemp(join(tmpdir(),'orchestrator-role-upgrade-'));const home=join(dir,'data');
   try {loadConfig(dir,{ORCHESTRATOR_DATA_DIR:home});const assistant=defaultAgents.find(a=>a.id==='assistant')!;
-    atomicJSON(join(home,'agents/assistant.json'),{...assistant,allowedTools:['list_files','read_file','write_file','run_command','delegate_task','wait_tasks']});
+    atomicJSON(join(home,'agents/assistant.json'),{...assistant,systemPrompt:legacyAgentPrompts.assistant!,allowedTools:['list_files','read_file','write_file','run_command','delegate_task','wait_tasks']});
     atomicJSON(join(home,'agents/reviewer.json'),{...defaultAgents.find(a=>a.id==='reviewer')!,systemPrompt:'Custom',allowedTools:['read_file']});
-    const config=loadConfig(dir,{ORCHESTRATOR_DATA_DIR:home});assert.ok(config.agents.find(a=>a.id==='assistant')!.allowedTools.includes('ask_user'));assert.deepEqual(config.agents.find(a=>a.id==='reviewer')!.allowedTools,['read_file']);
+    atomicJSON(join(home,'agents/coordinator.json'),{...defaultAgents.find(a=>a.id==='coordinator')!,systemPrompt:legacyAgentPrompts.coordinator!,allowedTools:['read_file']});
+    const paths = ['assistant','researcher','coordinator','reviewer'].map(id => join(home,'agents',id+'.json'));
+    const timestamp = new Date('2024-01-01T00:00:00Z');
+    for (const path of paths) await utimes(path, timestamp, timestamp);
+    const config=loadConfig(dir,{ORCHESTRATOR_DATA_DIR:home});assert.equal(config.agents.find(a=>a.id==='coordinator')!.systemPrompt,legacyAgentPrompts.coordinator);assert.deepEqual(config.agents.find(a=>a.id==='coordinator')!.allowedTools,['read_file']);assert.ok(config.agents.find(a=>a.id==='assistant')!.allowedTools.includes('ask_user'));assert.equal(config.agents.find(a=>a.id==='assistant')!.systemPrompt,assistant.systemPrompt);assert.deepEqual(config.agents.find(a=>a.id==='reviewer')!.allowedTools,['read_file']);
+    for (const path of paths) assert.equal((await stat(path)).mtimeMs,timestamp.getTime());
   } finally {await rm(dir,{recursive:true,force:true});}
 });
 

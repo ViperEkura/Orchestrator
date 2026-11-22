@@ -6,6 +6,10 @@ The runtime owns execution and persistence. TUI and web/desktop clients consume 
 classDiagram
   class OrchestratorClient {
     snapshot()
+    agentSessions(parentSessionId)
+    followup(input)
+    agentMessage(sessionId, content)
+    closeAgent(sessionId)
     submit(input)
     events(after, signal)
     approve(id, decision)
@@ -15,6 +19,10 @@ classDiagram
   class OrchestratorService {
     submit(input)
     delegate(parent, input)
+    listAgentSessions(parentSessionId)
+    followup(input)
+    sendAgentMessage(sessionId, content)
+    closeAgent(sessionId)
     resolveApproval(id, decision)
     cancel(taskId)
     retry(taskId)
@@ -38,6 +46,8 @@ classDiagram
   class Session {
     id
     parentSessionId
+    closedAt
+    mailbox
     cwd
     workspace
   }
@@ -69,15 +79,15 @@ classDiagram
 
 A session is a conversation with a stable cwd. Each user turn creates a task; retrying a leaf task creates a new run. A run snapshots its role and messages. Child tasks have separate sessions; parents receive structured results through `wait_tasks`. Dependencies can refer to existing siblings, avoiding cycles by construction.
 
-Separate model and tool semaphores default to three permits each. Waiting for approvals or children holds neither permit. Root budgets limit the tree to 16 tasks, depth 3, and 40 model calls; each run has a five-minute deadline. Cancellation propagates to descendants. Restart marks unfinished work interrupted; side effects are never automatically replayed.
+Separate model and tool semaphores default to three permits each. Waiting for approvals or children holds neither permit. New-installation root budgets limit the tree to 64 tasks, depth 3, and 400 model calls; existing JSON settings retain their saved limits; each run has a five-minute deadline. Cancellation propagates to descendants. Restart resumes checkpointed runs, retains pending input, and quarantines uncertain writes; unfinished legacy runs remain interrupted.
 
-Root sessions use the selected project cwd. Read-only children inherit cwd and only read-only tools from the intersection of parent and child capabilities. Writable children explicitly request detached Git worktrees of committed HEAD. Read-only parents cannot grant writable access. Worktrees remain for manual review and merging.
+Root sessions use the selected project cwd. Read-only children inherit cwd and only read-only tools from the intersection of parent and child capabilities. Writable children explicitly request detached Git worktrees of committed HEAD. Read-only parents cannot grant writable access. Worktrees pin their base commit and remain available for review. IntegrationQueue verifies merges in separate worktrees before an explicit apply action.
 
 ## Files and replay
 
 `loadConfig` merges defaults, global settings, project settings, and environment overrides. Agent definitions are editable global JSON files. API secrets come from environment variables or explicit credential-file references.
 
-StateStore holds the current state in memory. `change` clones it, applies a mutation, computes changed object fields and appended array tails, validates JSON round-trip, then appends and fsyncs a record before publishing the new state. It does not write the entire state on every change. In-memory cloning and diffing still limit scalability.
+StateStore holds the current state in memory. `change` clones it, applies a mutation, computes changed object fields and appended array tails, validates JSON round-trip, then appends and fsyncs a record before publishing the new state. It does not write the entire state on every change. Scoped run transactions and selected metadata reads avoid whole-state clones on hot paths. Global mutations and full client snapshots still have scaling costs.
 
 ```json
 {"version":1,"event":{"seq":1,"type":"runtime.started","at":"...","data":{}},"changes":[]}
@@ -97,25 +107,11 @@ Single user and process, no encryption, compaction, independent session deletion
 
 Direct conversation defaults to Assistant. Explicit delegation plans are stored with the parent Task and expanded by the runtime before synthesis. Plan dependencies reference earlier entries by index. See [collaboration](COLLABORATION.md) and [TUI interaction design](TUI.md).
 
-## Source layout
-
-```text
-src/
-  main.ts              CLI entry
-  index.ts             Public package exports
-  core/                Domain, runtime, approvals, config, workspaces
-  storage/             JSONL store, atomic files, legacy migration
-  models/              Demo and compatible model providers
-  tools/               Tool registry and built-in tools
-  transport/           HTTP server, client SDK, shared SSE parser
-  tui/                 App, transcript, Markdown, completion, questions
-```
-
 The CLI remains `src/main.ts`; public exports remain in `src/index.ts`. The `orchestrator/client` package export resolves to `transport/client`. Tests stay in `tests/` and import the relevant modules directly.
 
 ## Graphical client layer
 
-The React client in `src/web` uses the browser-compatible SDK and SSE stream. The WinForms/WebView2 host in `src/desktop` displays the same assets and owns a bundled local runtime. The storage format and provider integration are shared with the TUI. The transport serves only explicitly allowlisted built assets from `dist/web`.
+The React client in `src/clients/web` uses the browser-compatible SDK and SSE stream. The WinForms/WebView2 host in `src/clients/desktop` displays the same assets and owns a bundled local runtime. The storage format and provider integration are shared with the TUI. The transport serves only explicitly allowlisted built assets from `dist/web`.
 
 ## Design patterns and current boundaries
 
@@ -124,6 +120,33 @@ The React client in `src/web` uses the browser-compatible SDK and SSE stream. Th
 - ToolRegistry resolves explicit tool commands; capability filtering restricts the available commands per run.
 - StateStore publishes events to HTTP/SSE consumers. This separates execution from rendering. Its journal supports recovery, but the current implementation still clones whole state during changes.
 - OrchestratorClient is the shared transport facade for TUI, browser and desktop interfaces.
-- UI components use composition. Shared approval options live in ui/options.ts; the TUI editor, questions and workspace panels own their local interaction logic.
+- UI components use composition. Shared approval options live in src/clients/shared/options.ts; the TUI editor, questions and workspace panels own their local interaction logic.
 
-The architecture is not fully decomposed: OrchestratorService still combines scheduling and run execution, and both main UI components coordinate several states. Follow-up refactoring should extract a scheduler and explicit UI transitions when those responsibilities evolve. Do not introduce a class or factory for each conditional solely to match a named pattern. The current TUI parity work does not claim to implement distributed workers or a formal UI state machine.
+Scheduling, local worker lifecycle, run execution, model limits and integration now live in Scheduler, WorkerPool, RunExecutor, ModelGateway and IntegrationQueue. OrchestratorService owns the control API. TaskRepository provides scoped state operations. See [multi-agent execution](SWARM.md) for the class diagram, checkpoints and limits. The clients still coordinate several UI states; remote workers and distributed storage are not implemented.
+
+## Source layout
+
+```text
+src/
+  core/
+    agents/       Role definitions, session lifecycle views, reusable context
+    tasks/        Repository, validation schemas, result previews
+    execution/    Scheduler, worker pool, executor and checkpoints
+    workspaces/   Workspace preparation and verified integration
+    domain.ts     Shared data contracts
+    config.ts     Settings and role upgrades
+    runtime.ts    Public service and orchestration commands
+  models/         Providers, model registry and request limits
+  tools/          Built-in tools and filesystem operations
+  storage/        JSON/JSONL persistence, locks and artifacts
+  transport/      HTTP/SSE, client SDK and static assets
+  clients/
+    shared/       Shared presentation helpers and task timelines
+    tui/          Terminal views, navigation, input and Markdown
+    web/          Browser/desktop views and styles
+    desktop/      Windows shell and WebView2 host
+  main.ts         Application entry point
+  index.ts        Library exports
+```
+
+Session, Task and Run have separate lifetimes. Session parent links survive assignments. Lifecycle status is derived from task state plus closedAt, so it cannot drift after recovery. Session mailboxes use durable state transactions. Idle sessions require no worker. See SWARM.md for lifecycle and ownership rules.

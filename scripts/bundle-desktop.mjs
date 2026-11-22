@@ -4,7 +4,7 @@ import { resolve, join } from 'node:path';
 const root = resolve(process.argv[2] ?? 'dist/windows/Orchestrator');
 const resources=join(root,'resources');
 await mkdir(resources,{recursive:true});
-await build({entryPoints:['src/desktop/server.ts'],bundle:true,outfile:join(resources,'runtime.mjs'),platform:'node',format:'esm',target:'node24',external:['@vscode/ripgrep'],banner:{js:"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);"}});
+await build({entryPoints:['src/clients/desktop/server.ts'],bundle:true,outfile:join(resources,'runtime.mjs'),platform:'node',format:'esm',target:'node24',external:['@vscode/ripgrep'],banner:{js:"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);"}});
 await cp('dist/web',join(resources,'web'),{recursive:true});
 await copyFile(process.execPath,join(resources,'node.exe'));
 for(const name of ['ripgrep','ripgrep-win32-x64']) await cp('node_modules/@vscode/'+name,join(resources,'node_modules/@vscode',name),{recursive:true});

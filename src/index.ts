@@ -9,3 +9,7 @@ export { OrchestratorClient } from './transport/client.js';
 export { startServer } from './transport/server.js';
 export { loadConfig } from './core/config.js';
 export { atomicJSON } from './storage/files.js';
+
+export { Scheduler } from './core/execution/scheduler.js';
+export { TaskRepository } from './core/tasks/repository.js';
+export { ModelGateway } from './models/gateway.js';

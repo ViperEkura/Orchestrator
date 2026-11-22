@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { stripVTControlCharacters } from 'node:util';
 import stringWidth from 'string-width';
-import { renderMarkdown } from '../src/tui/markdown.js';
-import { transcript, historyTop } from '../src/tui/view.js';
+import { renderMarkdown } from '../src/clients/tui/markdown.js';
+import { transcript, historyTop } from '../src/clients/tui/view.js';
 import { emptyState } from '../src/storage/store.js';
 
 const plain = (lines: string[]) => lines.map(stripVTControlCharacters);

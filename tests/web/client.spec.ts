@@ -1,8 +1,8 @@
 import { ModelRegistry } from '../../src/models/registry.js';
 import { test, expect, chromium } from '@playwright/test';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -118,6 +118,12 @@ test('static assets expose no workspace files and APIs still require authenticat
 test('packaged exe starts its own runtime and closes cleanly',async()=>{
   const net = createServer(); await new Promise<void>(done=>net.listen(0,'127.0.0.1',done));
   const port = (net.address() as {port:number}).port; await new Promise<void>(done=>net.close(()=>done()));
+  const dataDir = join(directory,'desktop-data');
+  await mkdir(dataDir,{recursive:true});
+  const previous = spawnSync(process.execPath,['-e',''],{windowsHide:true});
+  expect(previous.status).toBe(0);
+  // A previous runtime exited during recovery; both old PID files remain.
+  for (const name of ['runtime.lock','runtime.lock.reclaim']) await writeFile(join(dataDir,name),String(previous.pid));
   const child=spawn(resolve('dist/windows/Orchestrator/Orchestrator.exe'),['--cwd',project],{windowsHide:false,env:{...process.env,ORCHESTRATOR_DATA_DIR:join(directory,'desktop-data'),ORCHESTRATOR_PROVIDER:'demo',WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:'--remote-debugging-port='+port}});
   let closed=false;child.once('exit',()=>{closed=true;});
   let browser: Awaited<ReturnType<typeof chromium.connectOverCDP>> | undefined;
@@ -242,4 +248,91 @@ test('users add custom model endpoints and switch without exposing the API key',
   if(process.env.ORCHESTRATOR_MODELS_SCREENSHOT)await page.screenshot({path:process.env.ORCHESTRATOR_MODELS_SCREENSHOT});
   await page.getByRole('dialog').getByRole('button',{name:/Preview provider/}).click();
   await expect(page.getByRole('button',{name:'Choose model',exact:true})).toContainText('Preview provider');
+});
+
+test('project task board exposes dispatch, messages and acceptance controls',async({page})=>{
+  const task=runtime.submit({objective:'Task board review fixture',reviewRequired:true});
+  const deadline=Date.now()+10000;
+  while(store.select(state=>state.tasks[task.id]!.status)!=='waiting_review'){if(Date.now()>deadline)throw new Error('Review fixture timeout');await new Promise(resolve=>setTimeout(resolve,20));}
+  await visit(page);await page.getByRole('button',{name:'Tasks',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Project tasks'});await expect(dialog).toBeVisible();
+  await dialog.getByRole('button',{name:'Task board review fixture',exact:true}).click();
+  await expect(dialog.getByRole('button',{name:'Accept result'})).toBeDisabled();
+  await dialog.getByLabel('Task note').fill('Checked result and acceptance evidence');
+  if(process.env.ORCHESTRATOR_TASKS_SCREENSHOT)await page.screenshot({path:process.env.ORCHESTRATOR_TASKS_SCREENSHOT});
+  await dialog.getByRole('button',{name:'Accept result'}).click();
+  await expect.poll(()=>store.select(state=>state.tasks[task.id]!.status)).toBe('completed');
+  await page.setViewportSize({width:390,height:844});await expect(dialog).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+});
+
+
+test('idle child conversations accept follow-up tasks and can return to parent or close',async({page})=>{
+  const root=runtime.submit({objective:'Reusable lifecycle parent',delegations:[{agentId:'researcher',objective:'Child lifecycle job'}]});
+  await runtime.waitUntilDone(root.id);
+  await visit(page);
+  await page.locator('.session-row').filter({hasText:'Reusable lifecycle parent'}).click();
+  await page.getByRole('button',{name:'Toggle details',exact:true}).click();
+  await page.locator('.agent-card').filter({hasText:'researcher'}).click();
+  await expect(page.getByPlaceholder('Assign the next task…')).toBeVisible();
+  await page.getByRole('textbox',{name:'Message',exact:true}).fill('Follow-up lifecycle job');
+  await page.getByRole('button',{name:'Send message',exact:true}).click();
+  await expect(page.locator('.turn')).toHaveCount(2);
+  await expect(page.getByPlaceholder('Assign the next task…')).toBeVisible();
+  await page.getByRole('textbox',{name:'Message',exact:true}).press('Escape');
+  await expect(page.locator('.turn')).toHaveCount(1);
+  await page.locator('.agent-card').filter({hasText:'researcher'}).click();
+  await expect(page.locator('.turn')).toHaveCount(2);
+  await page.getByRole('button',{name:'Close agent',exact:true}).click();
+  await expect(page.getByRole('textbox',{name:'Message',exact:true})).toBeDisabled();
+  await expect(page.getByPlaceholder('Agent closed')).toBeVisible();
+  await page.getByRole('button',{name:'← Parent',exact:true}).click();
+  await expect(page.locator('.turn')).toHaveCount(1);
+});
+
+test('sidebar rename, pin, archive and recover a deleted conversation', async ({page}) => {
+  const original = 'Sidebar lifecycle test';
+  const renamed = 'Renamed sidebar conversation';
+  const task = runtime.submit({objective:original});
+  await runtime.waitUntilDone(task.id);
+  const newer = runtime.submit({objective:'More recent sidebar conversation'});
+  await runtime.waitUntilDone(newer.id);
+  await visit(page);
+
+  const row = (name: string) => page.locator('.session-row').filter({hasText:name});
+  const action = async (name: string, label: string) => {
+    await row(name).click({button:'right'});
+    await page.getByRole('menuitem',{name:label,exact:true}).click();
+  };
+  await row(original).click();
+  await action(original, 'Rename');
+  await page.getByRole('textbox',{name:'Conversation name'}).fill(renamed);
+  await page.getByRole('button',{name:'Save',exact:true}).click();
+  await expect(page.locator('.chat-heading')).toContainText(renamed);
+  await row(renamed).hover();
+  await page.getByRole('button',{name:'Actions for '+renamed}).click();
+  await page.getByRole('menuitem',{name:'Pin',exact:true}).click();
+  await expect(row(renamed).locator('xpath=ancestor::section[1]').locator('.session-row').first()).toHaveText(renamed);
+
+  await action(renamed, 'Archive');
+  await expect(row(renamed)).toHaveCount(0);
+  await page.getByRole('button',{name:'Archived',exact:true}).click();
+  await action(renamed, 'Restore to project');
+  await page.getByRole('button',{name:'Back to projects'}).click();
+  await action(renamed, 'Delete…');
+  await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  await expect(row(renamed)).toBeVisible();
+  await action(renamed, 'Delete…');
+  await page.getByRole('button',{name:'Move to Trash',exact:true}).click();
+  await expect(row(renamed)).toHaveCount(0);
+  await page.reload();
+  await page.getByRole('button',{name:'Trash',exact:true}).click();
+  await row(renamed).click();
+  await expect(page.locator('.user-message')).toHaveText(original);
+  await expect(page.getByRole('textbox',{name:'Message',exact:true})).toHaveCount(0);
+  await action(renamed, 'Restore to project');
+  await page.getByRole('button',{name:'Back to projects'}).click();
+  await row(renamed).click();
+  await expect(page.getByRole('textbox',{name:'Message',exact:true})).toBeEnabled();
+  await expect(page.locator('.user-message')).toHaveText(original);
 });

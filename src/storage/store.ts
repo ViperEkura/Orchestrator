@@ -84,17 +84,45 @@ export class StateStore {
       try { ftruncateSync(fd, tail.length); fsyncSync(fd); } finally { closeSync(fd); }
     }
   }
+  select<T>(select: (state: State) => T): T { return structuredClone(select(this.state)); }
+  transaction(scope: Partial<{[K in keyof State]: string[]}>, type: string, data: unknown, mutate: (state: State) => void, ids: {taskId?: string; runId?: string; sessionId?: string} = {}) {
+    const draft = emptyState();
+    for (const table of Object.keys(scope) as (keyof State)[]) for (const id of scope[table]!) {
+      const value = this.state[table][id]; if (value !== undefined) (draft[table] as ObjectMap)[id] = structuredClone(value);
+    }
+    mutate(draft);
+    const next = { ...this.state };
+    for (const table of Object.keys(draft) as (keyof State)[]) {
+      if (Object.keys(draft[table]).some(id => !scope[table]?.includes(id))) throw new Error('Mutation outside transaction scope');
+      if (!scope[table]) continue;
+      const map: ObjectMap = { ...this.state[table] };
+      for (const id of scope[table]!) { if (Object.hasOwn(draft[table], id)) map[id] = draft[table][id]; else delete map[id]; }
+      (next as unknown as ObjectMap)[table] = map;
+    }
+    return this.commit(next, type, data, ids);
+  }
   snapshot(): Snapshot { return { state: structuredClone(this.state), lastSeq: this.log.length }; }
   change(type: string, data: unknown, mutate: (state: State) => void, ids: { taskId?: string; runId?: string; sessionId?: string } = {}): RuntimeEvent {
     if (this.closed) throw new Error('Store is closed');
     const next = structuredClone(this.state); mutate(next);
+    return this.commit(next, type, data, ids);
+  }
+  private commit(next: State, type: string, data: unknown, ids: {taskId?: string; runId?: string; sessionId?: string}) {
+    if (this.closed) throw new Error('Store is closed');
     const task = ids.taskId ? next.tasks[ids.taskId] : undefined;
     const event: RuntimeEvent = { seq: this.log.length + 1, type, at: new Date().toISOString(), ...ids,
       ...(ids.sessionId || task ? { sessionId: ids.sessionId ?? task!.sessionId } : {}), data };
     const record: Record = { version: 1, event, changes: diff(this.state, next) };
     // Round-trip validation means live and restored state use identical JSON values.
     const encoded = JSON.stringify(record); const parsed = JSON.parse(encoded) as Record;
-    const replay = structuredClone(this.state); apply(replay, parsed.changes);
+    const replay = { ...this.state };
+    // Copy only ancestors of changed records. Never mutate the previous committed state.
+    for (const patch of parsed.changes) {
+      let parent = replay as unknown as ObjectMap;
+      for (const key of patch.path.slice(0, -1)) { parent[key] = { ...(parent[key] as ObjectMap) }; parent = parent[key] as ObjectMap; }
+      if (patch.op === 'append') { const key = patch.path.at(-1)!; parent[key] = [...parent[key] as unknown[]]; }
+      apply(replay, [patch]);
+    }
     if (!isDeepStrictEqual(replay, next)) throw new Error('State must contain lossless JSON values');
     if (this.root !== ':memory:') {
       const session = event.sessionId ? next.sessions[event.sessionId] : undefined;

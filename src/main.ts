@@ -7,7 +7,7 @@ import { configuredModels } from './models/configured.js';
 import { OrchestratorService } from './core/runtime.js';
 import { OrchestratorClient } from './transport/client.js';
 import { startServer } from './transport/server.js';
-import { startTui } from './tui/app.js';
+import { startTui } from './clients/tui/app.js';
 import { loadConfig } from './core/config.js';
 
 async function main() {

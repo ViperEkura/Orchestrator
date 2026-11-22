@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { backspace, deleteForward, draftOf, insert, layout, move, moveVertical, MAX_INPUT } from '../src/tui/editor.js';
+import { backspace, deleteForward, draftOf, insert, layout, move, moveVertical, MAX_INPUT } from '../src/clients/tui/editor.js';
 
 test('editing preserves Chinese, combining characters and joined emoji', () => {
   const original = draftOf('你好👩‍💻é');

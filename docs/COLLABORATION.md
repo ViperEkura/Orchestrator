@@ -1,5 +1,7 @@
 # Sub-agents and multi-agent execution
 
+See [agent roles, workspace instructions and skills](AGENT_GUIDANCE.md) for configuration and examples.
+
 The same runtime primitives support direct conversation, sub-agent delegation, and coordinated teams. They work with any injected ModelProvider; DemoProvider is only a deterministic example.
 
 - **Direct conversation:** submit a task to the default `assistant`; continue with the returned session ID. Text streams through SSE and complete messages persist in JSONL.

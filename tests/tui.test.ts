@@ -4,10 +4,10 @@ import React from 'react';
 import stringWidth from 'string-width';
 import { PassThrough, Writable } from 'node:stream';
 import { render } from 'ink';
-import { App } from '../src/tui/app.js';
+import { App } from '../src/clients/tui/app.js';
 import { emptyState } from '../src/storage/store.js';
 import { OrchestratorClient } from '../src/transport/client.js';
-import { anchorAt, historyTop, conversations, transcript } from '../src/tui/view.js';
+import { anchorAt, historyTop, conversations, transcript } from '../src/clients/tui/view.js';
 import type { ModelInput, ModelDescriptor, ApprovalMode, Snapshot, Task, RuntimeEvent, SubmitInput } from '../src/core/domain.js';
 
 function fixture(): Snapshot {
@@ -35,6 +35,10 @@ test('conversation history shows each turn once and preserves long Unicode outpu
 });
 
 class FakeClient extends OrchestratorClient {
+  taskMessages: {id:string;content:string}[]=[]; reviews:string[]=[];
+  override async pause(id:string,paused:boolean){this.data.state.tasks[id]!.paused=paused;return {ok:true};}
+  override async message(id:string,content:string){this.taskMessages.push({id,content});return {id:'message',toTaskId:id,content,createdAt:'2026-11-22'};}
+  override async review(id:string,decision:'accepted'|'rejected',_note:string){this.reviews.push(decision);this.data.state.tasks[id]!.status=decision==='accepted'?'completed':'failed';return {ok:true};}
   answers: { id: string; answer: string }[] = [];
   override async answer(id: string, answer: string) { this.answers.push({ id, answer }); this.data.state.questions[id]!.status = 'answered'; this.data.state.questions[id]!.answer = answer; return { ok: true }; }
   data = fixture(); decisions: string[] = []; inputs: SubmitInput[] = [];
@@ -443,4 +447,127 @@ test('TUI adds and selects custom models while masking keys and retaining the ch
     assert.match(tui.frame(),/CHOOSE MODEL/);await tui.press('\x1b[A');await tui.press('\r');
     assert.equal(client.modelId,'default');assert.match(tui.frame(),/draft kept/);assert.equal(client.inputs.length,0);
   } finally {tui.close();}
+});
+
+test('TUI task board pauses dispatch, sends a targeted message and reviews a result',async()=>{
+  const client=new FakeClient();client.data.state.approvals={};client.data.state.tasks.one!.status='queued';
+  const tui=terminalHarness(client,70,24);
+  try{
+    await pause(160);await tui.press('/tasks');await tui.press('\r');assert.match(tui.frame(),/PROJECT TASKS/);
+    await tui.press('p');assert.equal(client.data.state.tasks.one!.paused,true);
+    await tui.press('m');await tui.press('Updated requirements');await tui.press('\r');assert.deepEqual(client.taskMessages,[{id:'one',content:'Updated requirements'}]);
+    client.data.state.tasks.one!.status='waiting_review';client.emit({seq:2,type:'task.review_requested',at:'2026-11-22',data:{}});await pause(160);
+    await tui.press('y');await tui.press('Verified tests and result');await tui.press('\r');assert.deepEqual(client.reviews,['accepted']);
+    for(const line of tui.frame().split('\n'))assert.ok(stringWidth(line)<=70);
+  }finally{tui.close();}
+});
+
+test('parent chat shows live child progress, opens it by click and returns with the draft',async()=>{
+  const client=new FakeClient(),state=client.data.state;state.approvals={};delete state.tasks.two;delete state.runs.two;
+  state.tasks.one!.status='waiting_children';state.runs.one!.status='waiting_children';state.runs.one!.messages=[{role:'user',content:state.tasks.one!.objective}];
+  state.sessions.child={...state.sessions.one!,id:'child',parentSessionId:'one'};
+  state.tasks.child={...state.tasks.one!,id:'child',rootId:'one',parentTaskId:'one',sessionId:'child',runIds:['child'],agentId:'researcher',depth:1,status:'running',objective:'Inspect the project'};
+  state.runs.child={...state.runs.one!,id:'child',taskId:'child',status:'running',config:{...state.runs.one!.config,name:'Researcher'},messages:[{role:'user',content:'Inspect the project'}]};
+  const tui=terminalHarness(client,100,30);
+  try{
+    await pause(160);await tui.press('\x10');await tui.press('\r');await tui.press('draft kept');
+    assert.match(tui.frame(),/0\/1 done/);
+    client.emit({seq:2,type:'message.thinking',at:'',runId:'child',data:{text:'Checking implementation details'},transient:true});await pause();
+    assert.match(tui.frame(),/Thinking · Checking implementation/);
+    const y=tui.frame().split('\n').findIndex(line=>line.includes('↗ researcher'))+1;assert.ok(y>=5);
+    await tui.press('\x1b[<0;3;'+y+'M');await tui.press('\x1b[<0;3;'+y+'m');
+    assert.match(tui.frame(),/AGENT CHAT/);assert.match(tui.frame(),/Ctrl\+B parent/);assert.match(tui.frame(),/DELEGATED TASK/);assert.match(tui.frame(),/Inspect the project/);
+    assert.doesNotMatch(tui.frame(),/First conversation|draft kept/);
+    client.emit({seq:2,type:'message.delta',at:'',runId:'child',data:{text:'Found the implementation'},transient:true});await pause();
+    assert.match(tui.frame(),/Found the implementation/);
+    await tui.press('/'); // Parent navigation takes precedence over command suggestions.
+    await tui.press('\x1b');
+    assert.doesNotMatch(tui.frame(),/Esc \/ Ctrl\+B parent/);assert.match(tui.frame(),/draft kept/);assert.match(tui.frame(),/Responding · Found the implementation/);
+    await tui.press('\x14');assert.match(tui.frame(),/Responding · Found the implementation/);
+    await tui.press('\x1b[B');await tui.press('\r');assert.match(tui.frame(),/Ctrl\+B parent/);
+    await tui.press('\x02');assert.match(tui.frame(),/draft kept/);
+    assert.equal(client.inputs.length,0);
+  }finally{tui.close();}
+});
+
+test('child progress stays compact for large teams and survives stream completion',()=>{
+  const {state}=fixture();
+  for(let i=0;i<12;i++){
+    const id='child'+i;
+    state.tasks[id]={...state.tasks.one!,id,parentTaskId:'one',runIds:[id],sessionId:id,agentId:'researcher',status:'running',objective:'Task '+i};
+    state.runs[id]={...state.runs.one!,id,messages:[{role:'assistant',content:'',toolCalls:[{id:'read'+i,name:'read_file',arguments:'{"path":"src/main.ts"}'}]}]};
+  }
+  let lines=transcript(state,'one',{},48);
+  assert.equal(lines.filter(line=>line.openTaskId).length,6);
+  assert.ok(lines.filter(line=>line.openTaskId).every(line=>line.text.startsWith('↗ ')&&!line.disclosureId));
+  assert.ok(lines.some(line=>line.text.includes('Agents')&&!line.disclosureId));assert.ok(lines.some(line=>line.text.includes('+6 more')));
+  assert.ok(lines.some(line=>line.text.includes('read_file')));
+  state.tasks.child0!.status='completed';state.tasks.child0!.result='Finished analysis';
+  lines=transcript(state,'one',{},48,new Set(['one:children']));
+  assert.equal(lines.filter(line=>line.openTaskId).length,12);assert.ok(lines.some(line=>line.text.includes('Done · Finished analysis')));
+  for(const line of lines.filter(line=>line.openTaskId))assert.ok(stringWidth(line.text)<=48);
+});
+
+
+test('child transcript contains only its own messages, thinking and tools', () => {
+  const {state}=fixture();
+  state.tasks.child={...state.tasks.one!,id:'child',parentTaskId:'one',sessionId:'child',runIds:['child'],objective:'Delegated objective'};
+  state.runs.child={...state.runs.one!,id:'child',taskId:'child',messages:[
+    {role:'user',content:'Delegated objective'},
+    {role:'assistant',content:'Child answer',reasoningContent:'Child reasoning',toolCalls:[{id:'child-tool',name:'read_file',arguments:'{"path":"child.txt"}'}]},
+    {role:'tool',toolCallId:'child-tool',content:'Child tool output'}
+  ]};
+  const text=transcript(state,'child',{one:'Parent live output',child:'Child live output'},100,new Set(['child:thinking:1','child:tool:1:child-tool']),{one:'Parent live reasoning'}).map(line=>line.text).join('\n');
+  for(const expected of ['DELEGATED TASK','Delegated objective','Child answer','Child reasoning','child.txt','Child tool output','Child live output'])assert.ok(text.includes(expected),expected);
+  assert.doesNotMatch(text,/First conversation|Second conversation|Answer for one|History line|Parent live/);
+});
+
+
+test('child activity stays at dispatch time across plans, multiple waves and completion', () => {
+  const {state}=fixture();
+  state.runs.one!.messages=[
+    {role:'user',content:state.tasks.one!.objective},
+    {role:'assistant',content:'First dispatch',toolCalls:[{id:'spawn-a',name:'delegate_task',arguments:'{}'}]},
+    {role:'tool',toolCallId:'spawn-a',content:'{"taskId":"a"}'},
+    {role:'assistant',content:'Parent continued after A'},
+    {role:'assistant',content:'Second dispatch',toolCalls:[{id:'spawn-b',name:'delegate_task',arguments:'{}'}]},
+    {role:'assistant',content:'Final synthesis'}
+  ];
+  for(const [id,sourceCallId] of [['plan','plan:0'],['a',undefined],['b','spawn-b']]) {
+    state.tasks[id!]={...state.tasks.one!,id:id!,parentTaskId:'one',sessionId:id!,runIds:[],sourceCallId,agentId:id!,status:'running'};
+  }
+  const check = () => {
+    const lines=transcript(state,'one',{},100), pos=(text:string)=>lines.findIndex(line=>line.text.includes(text));
+    const child=(id:string)=>lines.findIndex(line=>line.openTaskId===id);
+    assert.ok(child('plan')<pos('First dispatch'));
+    assert.ok(pos('First dispatch')<child('a')&&child('a')<pos('Parent continued after A'));
+    assert.ok(pos('Second dispatch')<child('b')&&child('b')<pos('Final synthesis'));
+    assert.equal(lines.filter(line=>line.openTaskId).length,3);
+  };
+  check();
+  for(const id of ['plan','a','b']){state.tasks[id]!.status='completed';state.tasks[id]!.result='Finished';}
+  state.runs.one!.messages.push({role:'tool',toolCallId:'spawn-b',content:'{"taskId":"b"}'});
+  check();
+});
+
+
+test('idle child chat starts follow-up, sends active messages, closes and returns to its parent draft',async()=>{
+  const client=new FakeClient(),state=client.data.state;state.approvals={};delete state.tasks.two;delete state.runs.two;
+  state.sessions.child={...state.sessions.one!,id:'child',parentSessionId:'one'};
+  state.tasks.child={...state.tasks.one!,id:'child',sessionId:'child',parentTaskId:'one',rootId:'one',agentId:'researcher',objective:'Child task',runIds:['child']};
+  state.runs.child={...state.runs.one!,id:'child',taskId:'child',messages:[{role:'user',content:'Child task'},{role:'assistant',content:'Child findings'}]};
+  const followups:string[]=[],messages:string[]=[];
+  client.followup=async input=>{followups.push(input.objective);const task={...state.tasks.child!,id:'next',rootId:'next',parentTaskId:undefined,runIds:['next'],status:'running' as const,objective:input.objective};state.tasks.next=task;state.runs.next={...state.runs.child!,id:'next',taskId:'next',status:'running',messages:[{role:'user',content:input.objective}]};return task;};
+  client.agentMessage=async(sessionId,content)=>{messages.push(content);return {id:'msg',sessionId,content,createdAt:''};};
+  client.closeAgent=async sessionId=>{state.sessions[sessionId]!.closedAt='now';state.tasks.next!.status='cancelled';return {ok:true};};
+  const tui=terminalHarness(client,100,30);
+  try{
+    await pause(160);await tui.press('\x10');await tui.press('\r');await tui.press('parent draft');
+    await tui.press('\x14');await tui.press('\x1b[B');await tui.press('\r');
+    assert.match(tui.frame(),/idle/);assert.match(tui.frame(),/Assign next task/);
+    await tui.press('Next child task');await tui.press('\r');assert.deepEqual(followups,['Next child task']);assert.match(tui.frame(),/AGENT CHAT/);
+    await tui.press('Supplement the task');await tui.press('\r');assert.deepEqual(messages,['Supplement the task']);assert.equal(followups.length,1);
+    await tui.press('/close-agent');await tui.press('\r');assert.match(tui.frame(),/closed/);
+    await tui.press('\x1b');assert.match(tui.frame(),/parent draft/);assert.doesNotMatch(tui.frame(),/AGENT CHAT/);
+  }finally{tui.close();}
 });

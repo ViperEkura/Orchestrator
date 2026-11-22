@@ -30,6 +30,11 @@ test('two delegated agents finish with concurrency=1 and isolated sessions', asy
     const state = f.store.snapshot().state;
     assert.equal(Object.values(state.tasks).filter(t => t.parentTaskId === root.id).length, 2);
     assert.equal(new Set(Object.values(state.tasks).map(t => t.sessionId)).size, 3);
+    for (const child of Object.values(state.tasks).filter(t => t.parentTaskId === root.id)) {
+      const messages = state.runs[child.runIds[0]!]!.messages;
+      assert.equal(messages.find(m => m.role === 'user')?.content, child.objective);
+      assert.ok(!messages.some(m => m.role === 'user' && m.content === root.objective));
+    }
     assert.ok(Object.values(state.tasks).every(t => t.status === 'completed'));
     assert.equal(Object.keys(state.artifacts).length, 3);
     assert.ok(f.store.events().some(e => e.type === 'run.waiting_children'));
