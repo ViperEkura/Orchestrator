@@ -1,8 +1,8 @@
 # Orchestrator
 
-English | [简体中文](README.zh-CN.md)
+English | [简体中文](docs/zh-CN.md)
 
-A local-first TypeScript multi-agent runtime with JSON configuration, JSONL history, tool approvals, an HTTP/SSE API, and an Ink terminal UI. English is the default. Web and desktop clients can use the API; their interfaces are not implemented yet.
+Orchestrator is a local-first TypeScript multi-agent runtime with a terminal UI, a web client, and a Windows desktop app. All three use the same JSON configuration, JSONL conversation history, and tool approvals. The interface defaults to English.
 
 ## Start
 
@@ -89,7 +89,27 @@ $env:LLM_API_KEY = 'your-api-key'
 npm.cmd run tui
 ```
 
-Environment overrides: `ORCHESTRATOR_PROVIDER`, `ORCHESTRATOR_HOST`, `ORCHESTRATOR_PORT`, `LLM_BASE_URL`, and `LLM_MODEL`. `ORCHESTRATOR_TOKEN` protects the local API; non-loopback binding requires at least 24 characters. `.env` is not loaded automatically; use `node --env-file=.env --import tsx src/main.ts tui` when needed.
+### Optional environment overrides
+
+To start a demo server, save the following as `.env` in the repository root. To use a model provider, change `demo` to `compatible` and fill in the three `LLM_*` variables.
+
+```dotenv
+ORCHESTRATOR_PROVIDER=demo
+ORCHESTRATOR_HOST=127.0.0.1
+ORCHESTRATOR_PORT=4317
+ORCHESTRATOR_APPROVAL_MODE=manual
+# ORCHESTRATOR_DATA_DIR=C:/Develop/orchestrator-data
+# ORCHESTRATOR_TOKEN=replace-with-a-long-random-token
+# LLM_BASE_URL=https://your-provider.example/v1
+# LLM_MODEL=your-model
+# LLM_API_KEY=your-api-key
+```
+
+Load the file explicitly from the repository root. Set `ORCHESTRATOR_TOKEN` to a random value of at least 24 characters when binding the server to a non-loopback address.
+
+```powershell
+node --env-file=.env --import tsx src/main.ts server
+```
 
 ## Sessions and workspaces
 
